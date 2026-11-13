@@ -21,6 +21,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [showSignupHint, setShowSignupHint] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -29,7 +30,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
+      setPassword('');
       setErrorMessage('');
+      setShowSignupHint(false);
       setSuccessMessage('');
       setIsSubmitting(false);
     }
@@ -40,6 +43,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
+    setShowSignupHint(false);
     setSuccessMessage('');
     setIsSubmitting(true);
 
@@ -61,6 +65,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     if (mode === 'signup') {
+      if (!fullName || fullName.trim().length < 2) {
+        setErrorMessage('Please enter your full name (at least 2 characters).');
+        setIsSubmitting(false);
+        return;
+      }
       if (!password || password.length < 6) {
         setErrorMessage('Password must be at least 6 characters long.');
         setIsSubmitting(false);
@@ -86,6 +95,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }
       } else {
         setErrorMessage(res.error || 'Invalid credentials or institutional account.');
+        if (res.code === 'ACCOUNT_NOT_REGISTERED') {
+          setShowSignupHint(true);
+        }
       }
     }
   };
@@ -93,12 +105,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const fillQuickSuperAdmin = () => {
     setEmail(SUPER_ADMIN_EMAIL);
     setPassword('SuperAdmin@2026');
-  };
-
-  const fillQuickStudent = () => {
-    setEmail('student26@iitdh.ac.in');
-    setPassword('Student@2026');
-    setFullName('Arjun Sharma');
   };
 
   return (
@@ -120,7 +126,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
             <h2 className="text-xl font-bold text-white tracking-tight">
               {mode === 'login' && 'Institute Single Sign-On'}
-              {mode === 'signup' && 'Student Account Registration'}
+              {mode === 'signup' && 'Institute Account Registration'}
               {mode === 'forgot' && 'Reset Institute Password'}
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
@@ -142,6 +148,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               onClick={() => {
                 setMode('login');
                 setErrorMessage('');
+                setShowSignupHint(false);
               }}
               className={`flex-1 py-3 text-xs font-semibold tracking-wide transition-colors ${
                 mode === 'login'
@@ -155,6 +162,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               onClick={() => {
                 setMode('signup');
                 setErrorMessage('');
+                setShowSignupHint(false);
               }}
               className={`flex-1 py-3 text-xs font-semibold tracking-wide transition-colors ${
                 mode === 'signup'
@@ -170,9 +178,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {errorMessage && (
-            <div className="p-3 bg-rose-950/50 border border-rose-800/60 rounded-lg text-rose-200 text-xs flex items-start gap-2">
-              <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <span>{errorMessage}</span>
+            <div className="p-3 bg-rose-950/50 border border-rose-800/60 rounded-lg text-rose-200 text-xs space-y-2">
+              <div className="flex items-start gap-2">
+                <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span>{errorMessage}</span>
+              </div>
+              {showSignupHint && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('signup');
+                    setErrorMessage('');
+                    setShowSignupHint(false);
+                  }}
+                  className="ml-6 text-indigo-300 hover:text-indigo-200 font-semibold underline"
+                >
+                  Switch to New Registration →
+                </button>
+              )}
             </div>
           )}
 
@@ -266,7 +289,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <>
                 <span>
                   {mode === 'login' && 'Authenticate & Enter'}
-                  {mode === 'signup' && 'Create Student Account'}
+                  {mode === 'signup' && 'Create Account & Enter'}
                   {mode === 'forgot' && 'Send Recovery Email'}
                 </span>
                 <ArrowRight className="w-4 h-4" />
@@ -286,29 +309,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
-          {/* Quick preset credentials for testing */}
-          <div className="pt-3 border-t border-slate-800">
-            <span className="text-[11px] text-slate-400 block mb-2 font-medium">
-              Demo Credentials Quick-Fill:
-            </span>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={fillQuickSuperAdmin}
-                className="text-[11px] bg-slate-800/80 hover:bg-slate-800 text-slate-300 py-1.5 px-2 rounded border border-slate-700 text-left transition-colors"
-              >
-                <strong className="block text-purple-300">Super Admin</strong>
-                <span className="truncate block opacity-80">{SUPER_ADMIN_EMAIL}</span>
-              </button>
-              <button
-                type="button"
-                onClick={fillQuickStudent}
-                className="text-[11px] bg-slate-800/80 hover:bg-slate-800 text-slate-300 py-1.5 px-2 rounded border border-slate-700 text-left transition-colors"
-              >
-                <strong className="block text-emerald-300">Student Account</strong>
-                <span className="truncate block opacity-80">student26@iitdh.ac.in</span>
-              </button>
-            </div>
+          {/* Authentication policy & Super Admin helper */}
+          <div className="pt-3 border-t border-slate-800 space-y-2.5">
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Students and Club Admins must sign in with their <code className="text-indigo-300">@iitdh.ac.in</code> password on each visit. New to the portal? Select <strong className="text-slate-200">New Registration</strong> above.
+            </p>
+            <button
+              type="button"
+              onClick={fillQuickSuperAdmin}
+              className="w-full text-[11px] bg-slate-800/80 hover:bg-slate-800 text-slate-300 py-1.5 px-2.5 rounded border border-slate-700 text-left transition-colors flex items-center justify-between gap-2"
+            >
+              <span>
+                <strong className="text-purple-300">Super Admin Quick-Fill:</strong>{' '}
+                <span className="opacity-80">{SUPER_ADMIN_EMAIL}</span>
+              </span>
+              <span className="text-[10px] text-slate-400">Fill</span>
+            </button>
           </div>
         </form>
       </div>

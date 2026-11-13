@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../lib/authContext';
+import { useTheme } from '../../lib/themeContext';
+import { useViewport } from '../../lib/viewportContext';
 import { 
   ShieldCheck, 
   Menu, 
   X, 
   LogIn, 
   LayoutDashboard, 
-  ShieldAlert, 
   User as UserIcon,
-  Sparkles
+  Sun,
+  Moon,
+  Smartphone,
+  Monitor
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -23,6 +27,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAuth,
 }) => {
   const { user, canAccessAdmin, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const { viewportMode, toggleViewportMode } = useViewport();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleDashboardClick = () => {
@@ -45,7 +51,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-md border-b border-slate-800/80 transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 md:gap-8">
         {/* Zone 1: Brand wordmark / single element */}
         <button
           onClick={() => onNavigate('/')}
@@ -115,8 +121,48 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </nav>
 
-        {/* Zone 3: Primary Action / User profile */}
-        <div className="hidden md:flex items-center gap-3 shrink-0">
+        {/* Zone 3: Viewport & Theme Toggles & Primary Action / User profile */}
+        <div className="hidden md:flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={toggleViewportMode}
+            className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0"
+            title={viewportMode === 'desktop' ? 'Switch to Phone View' : 'Switch to Desktop View'}
+            aria-label={viewportMode === 'desktop' ? 'Switch to Phone View' : 'Switch to Desktop View'}
+          >
+            {viewportMode === 'desktop' ? (
+              <>
+                <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Phone View</span>
+              </>
+            ) : (
+              <>
+                <Monitor className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Desktop View</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0"
+            title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+            aria-label={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+          >
+            {theme === 'dark' ? (
+              <>
+                <Sun className="w-3.5 h-3.5 text-amber-400" />
+                <span>Light</span>
+              </>
+            ) : (
+              <>
+                <Moon className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Dark</span>
+              </>
+            )}
+          </button>
+
           {user ? (
             <div className="flex items-center gap-2">
               <button
@@ -151,7 +197,33 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Mobile menu trigger */}
-        <div className="flex md:hidden items-center gap-2">
+        <div className="flex md:hidden items-center gap-1.5">
+          <button
+            type="button"
+            onClick={toggleViewportMode}
+            className="p-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white transition-colors"
+            title={viewportMode === 'desktop' ? 'Switch to Phone View' : 'Switch to Desktop View'}
+            aria-label={viewportMode === 'desktop' ? 'Switch to Phone View' : 'Switch to Desktop View'}
+          >
+            {viewportMode === 'desktop' ? (
+              <Smartphone className="w-4 h-4 text-indigo-400" />
+            ) : (
+              <Monitor className="w-4 h-4 text-indigo-400" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="p-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white transition-colors"
+            title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+            aria-label={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+          >
+            {theme === 'dark' ? (
+              <Sun className="w-4 h-4 text-amber-400" />
+            ) : (
+              <Moon className="w-4 h-4 text-indigo-400" />
+            )}
+          </button>
           {user && canAccessAdmin && (
             <button
               onClick={handleAdminClick}

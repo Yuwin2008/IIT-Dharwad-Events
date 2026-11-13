@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './lib/authContext';
+import { ThemeProvider } from './lib/themeContext';
+import { ViewportProvider, useViewport } from './lib/viewportContext';
+import { Monitor, Smartphone } from 'lucide-react';
 import { Navbar } from './components/layout/Navbar';
 import { Footer } from './components/layout/Footer';
 import { TestAccountSwitcher } from './components/auth/TestAccountSwitcher';
@@ -14,11 +17,18 @@ import { AdminDashboardView } from './views/AdminDashboardView';
 import { UnauthorizedView } from './views/UnauthorizedView';
 
 import { dataStore, useDataStoreVersion } from './lib/dataStore';
+import { useEventPushScheduler } from './lib/useEventPushScheduler';
+import {
+  getBrowserPushPermission,
+  requestBrowserPushPermission,
+} from './lib/pushNotifications';
 import { EventItem, Club } from './types';
 
 function AppContent() {
   const { user, canAccessAdmin, loading } = useAuth();
+  const { viewportMode, toggleViewportMode } = useViewport();
   useDataStoreVersion();
+  useEventPushScheduler(user?.email);
 
   // Router State
   const [currentRoute, setCurrentRoute] = useState<string>(() => {
@@ -51,6 +61,21 @@ function AppContent() {
       }
     }
   }, [selectedEvent]);
+
+  useEffect(() => {
+    const handleOpenEventNotification = (ev: Event) => {
+      const customEv = ev as CustomEvent<{ eventId?: string }>;
+      const eventId = customEv.detail?.eventId;
+      if (!eventId) return;
+      const evt = dataStore.getEventById(eventId);
+      if (evt) {
+        setSelectedEvent(evt);
+      }
+    };
+
+    window.addEventListener('iitdh-open-event', handleOpenEventNotification);
+    return () => window.removeEventListener('iitdh-open-event', handleOpenEventNotification);
+  }, []);
 
   const navigateTo = (route: string) => {
     setCurrentRoute(route);
@@ -148,6 +173,7 @@ function AppContent() {
       if (currentRoute === '/dashboard/events') dashboardTab = 'upcoming';
       else if (currentRoute === '/dashboard/clubs') dashboardTab = 'clubs';
       else if (currentRoute === '/dashboard/announcements') dashboardTab = 'announcements';
+      else if (currentRoute === '/dashboard/notifications') dashboardTab = 'notifications';
       else if (currentRoute === '/dashboard/account') dashboardTab = 'account';
 
       return (
@@ -171,10 +197,16 @@ function AppContent() {
     );
   };
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
-      {/* Quick Test Account Switcher Bar for Seamless Evaluation */}
-      <TestAccountSwitcher />
+  const appShell = (
+    <div
+      className={
+        viewportMode === 'phone'
+          ? 'w-full max-w-[390px] mx-auto bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white rounded-[2rem] border-4 border-slate-800 shadow-2xl overflow-x-hidden min-h-[780px] phone-viewport-frame'
+          : 'min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white'
+      }
+    >
+      {/* Portal Session Bar */}
+      <TestAccountSwitcher onOpenAuth={(mode) => handleOpenAuth(mode || 'login')} />
 
       {/* Main Navbar */}
       <Navbar
@@ -199,12 +231,28 @@ function AppContent() {
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
         initialMode={authModalMode}
-        onSuccessNavigate={(target) => navigateTo(target)}
+        onSuccessNavigate={(target) => {
+          if (!currentRoute.startsWith('/admin')) {
+            navigateTo(target);
+          }
+        }}
       />
 
       <EventModal
         event={selectedEvent}
         onClose={() => setSelectedEvent(null)}
+        isBookmarked={user && selectedEvent ? dataStore.isEventBookmarked(user.email, selectedEvent.id) : false}
+        onToggleBookmark={(eventId) => {
+          if (!user?.email) {
+            handleOpenAuth('login');
+            return;
+          }
+          const wasBookmarked = dataStore.isEventBookmarked(user.email, eventId);
+          void dataStore.toggleBookmarkEvent(user.email, eventId);
+          if (!wasBookmarked && getBrowserPushPermission() === 'default') {
+            void requestBrowserPushPermission(user.email);
+          }
+        }}
       />
 
       <ClubModal
@@ -213,6 +261,8 @@ function AppContent() {
         announcements={dataStore.getAnnouncements(false)}
         onClose={() => setSelectedClub(null)}
         onSelectEvent={(evt) => setSelectedEvent(evt)}
+        isFollowing={user && selectedClub ? dataStore.isFollowingClub(user.email, selectedClub.id) : false}
+        onToggleFollow={user ? (clubId) => { void dataStore.toggleFollowClub(user.email, clubId); } : undefined}
       />
 
       <SqlMigrationModal
@@ -221,12 +271,40 @@ function AppContent() {
       />
     </div>
   );
+
+  if (viewportMode === 'phone') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 py-4 px-2 flex flex-col items-center">
+        <div className="w-full max-w-[390px] mb-3 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2 text-xs shadow-sm">
+          <div className="flex items-center gap-1.5 font-semibold text-slate-200">
+            <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Phone View (390px)</span>
+          </div>
+          <button
+            type="button"
+            onClick={toggleViewportMode}
+            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold transition-colors flex items-center gap-1.5"
+          >
+            <Monitor className="w-3.5 h-3.5" />
+            <span>Switch to Desktop</span>
+          </button>
+        </div>
+        {appShell}
+      </div>
+    );
+  }
+
+  return appShell;
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ThemeProvider>
+      <ViewportProvider>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </ViewportProvider>
+    </ThemeProvider>
   );
 }

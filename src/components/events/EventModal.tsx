@@ -1,36 +1,83 @@
 import React, { useState } from 'react';
-import { X, Calendar, Clock, MapPin, Mail, ExternalLink, AlertCircle, Share2, Check } from 'lucide-react';
+import {
+  X,
+  Calendar,
+  Clock,
+  MapPin,
+  Mail,
+  ExternalLink,
+  AlertCircle,
+  Share2,
+  Check,
+  CalendarPlus,
+  Download,
+  Bookmark,
+  BellRing,
+} from 'lucide-react';
 import { EventItem } from '../../types';
+import { formatCalendarDate, formatDateTimeDisplay } from '../../lib/dateValidation';
+import {
+  buildGoogleCalendarUrl,
+  buildIcsContent,
+  getIcsFilename,
+} from '../../lib/calendarExport';
 
 interface EventModalProps {
   event: EventItem | null;
   onClose: () => void;
+  isBookmarked?: boolean;
+  onToggleBookmark?: (eventId: string) => void;
 }
 
-export const EventModal: React.FC<EventModalProps> = ({ event, onClose }) => {
+export const EventModal: React.FC<EventModalProps> = ({
+  event,
+  onClose,
+  isBookmarked = false,
+  onToggleBookmark,
+}) => {
   const [copied, setCopied] = useState(false);
+  const [icsDownloaded, setIcsDownloaded] = useState(false);
 
   if (!event) return null;
 
   const isRegistrationClosed = (() => {
     if (event.id === 'e1111111-1111-4111-b111-111111111111') return true;
     if (!event.registration_deadline) return false;
-    return new Date(event.registration_deadline).getTime() < new Date('2026-11-12T04:00:00Z').getTime();
+    const deadlineMs = new Date(event.registration_deadline).getTime();
+    if (isNaN(deadlineMs)) return false;
+    return deadlineMs < new Date('2026-11-12T04:00:00Z').getTime();
   })();
 
-  const formatDate = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr);
-      return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-    } catch {
-      return dateStr;
-    }
-  };
+  const formatDate = (dateStr: string) => formatCalendarDate(dateStr, 'long');
+
+  const shareUrl =
+    typeof window !== 'undefined' ? `${window.location.origin}?event=${event.id}` : undefined;
+  const googleCalendarUrl = buildGoogleCalendarUrl(event);
 
   const handleCopyShare = () => {
-    navigator.clipboard?.writeText(window.location.origin + '?event=' + event.id).catch(() => {});
+    if (shareUrl) {
+      navigator.clipboard?.writeText(shareUrl).catch(() => {});
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownloadIcs = () => {
+    const ics = buildIcsContent(event, shareUrl);
+    if (!ics) return;
+
+    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = getIcsFilename(event.title);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setIcsDownloaded(true);
+    setTimeout(() => setIcsDownloaded(false), 2500);
   };
 
   return (
@@ -50,7 +97,7 @@ export const EventModal: React.FC<EventModalProps> = ({ event, onClose }) => {
             referrerPolicy="no-referrer"
             className="w-full h-full object-cover"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/75 to-transparent" />
           
           <button
             onClick={onClose}
@@ -114,6 +161,72 @@ export const EventModal: React.FC<EventModalProps> = ({ event, onClose }) => {
             </div>
           </div>
 
+          {/* Bookmark & Export to Calendar Bar */}
+          {(googleCalendarUrl || onToggleBookmark) && (
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-slate-950/50 border border-slate-800 rounded-xl">
+              <span className="text-xs font-medium text-slate-300 flex items-center gap-2">
+                <CalendarPlus className="w-4 h-4 text-indigo-400 shrink-0" />
+                <span>Calendar & 30-minute push reminder</span>
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                {onToggleBookmark && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleBookmark(event.id)}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1.5 ${
+                      isBookmarked
+                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                    }`}
+                  >
+                    {isBookmarked ? (
+                      <>
+                        <BellRing className="w-3.5 h-3.5" />
+                        <span>Bookmarked (30m Alert On)</span>
+                      </>
+                    ) : (
+                      <>
+                        <Bookmark className="w-3.5 h-3.5" />
+                        <span>Bookmark & Remind</span>
+                      </>
+                    )}
+                  </button>
+                )}
+                {googleCalendarUrl && (
+                  <>
+                    <a
+                      href={googleCalendarUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 text-xs font-semibold text-indigo-200 hover:text-white bg-indigo-950/60 hover:bg-indigo-600/80 border border-indigo-700/50 rounded-lg transition-colors flex items-center gap-1.5"
+                    >
+                      <CalendarPlus className="w-3.5 h-3.5" />
+                      <span>Google Calendar</span>
+                      <ExternalLink className="w-3 h-3 opacity-80" />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleDownloadIcs}
+                      className="px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors flex items-center gap-1.5"
+                    >
+                      {icsDownloaded ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-emerald-300">ICS Downloaded</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Download .ICS</span>
+                        </>
+                      )}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Registration Status Banner */}
           {isRegistrationClosed ? (
             <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-xl flex items-start gap-2.5 text-xs text-amber-200">
@@ -131,7 +244,7 @@ export const EventModal: React.FC<EventModalProps> = ({ event, onClose }) => {
               <div>
                 <strong className="text-emerald-300 font-semibold block">Registration Open</strong>
                 <span>
-                  Closes on: {new Date(event.registration_deadline).toLocaleString()}
+                  Closes on: {formatDateTimeDisplay(event.registration_deadline)}
                 </span>
               </div>
             </div>

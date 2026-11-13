@@ -162,10 +162,14 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <Users className="w-4 h-4 text-purple-400" />
+                  <Users className={`w-4 h-4 ${activeTab === 'admins' ? 'text-white' : 'text-purple-400'}`} />
                   <span>Manage Club Admins</span>
                 </div>
-                <span className="text-[10px] bg-purple-900/80 px-1.5 py-0.5 rounded border border-purple-700/50">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                  activeTab === 'admins'
+                    ? 'bg-purple-800 text-white border-purple-400/50'
+                    : 'bg-purple-900/80 text-white border-purple-700/50'
+                }`}>
                   Super
                 </span>
               </button>

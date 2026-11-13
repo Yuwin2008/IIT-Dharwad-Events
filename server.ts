@@ -13,6 +13,7 @@ import {
   INITIAL_ACTIVITY_LOGS,
   INITIAL_PROFILES,
 } from './src/lib/seedData.ts';
+import { validateAndSanitizeEventDates } from './src/lib/dateValidation.ts';
 import type {
   Club,
   EventItem,
@@ -31,6 +32,11 @@ const PORT = Number(process.env.PORT) || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'portal-db.json');
 
+interface AuthCredential {
+  passwordHash: string;
+  updatedAt: string;
+}
+
 interface PortalDatabase {
   clubs: Club[];
   events: EventItem[];
@@ -38,6 +44,10 @@ interface PortalDatabase {
   clubAdmins: ClubAdminAssignment[];
   activityLogs: ActivityLogItem[];
   profiles: Profile[];
+  authCredentials?: Record<string, AuthCredential>;
+  followedClubsByUser?: Record<string, string[]>;
+  bookmarkedEventsByUser?: Record<string, string[]>;
+  readNotificationsByUser?: Record<string, string[]>;
 }
 
 function loadDatabase(): PortalDatabase {
@@ -63,6 +73,15 @@ function loadDatabase(): PortalDatabase {
       clubAdmins: [...INITIAL_CLUB_ADMINS],
       activityLogs: [...INITIAL_ACTIVITY_LOGS],
       profiles: [...INITIAL_PROFILES],
+      authCredentials: {
+        [SUPER_ADMIN_EMAIL.toLowerCase()]: {
+          passwordHash: hashPassword('SuperAdmin@2026'),
+          updatedAt: new Date().toISOString(),
+        },
+      },
+      followedClubsByUser: {},
+      bookmarkedEventsByUser: {},
+      readNotificationsByUser: {},
     };
     saveDatabase(db);
     return db;
@@ -83,11 +102,75 @@ function loadDatabase(): PortalDatabase {
     db.profiles = [...INITIAL_PROFILES];
     changed = true;
   }
+  if (!db.authCredentials || typeof db.authCredentials !== 'object') {
+    db.authCredentials = {};
+    changed = true;
+  }
+  if (!db.followedClubsByUser || typeof db.followedClubsByUser !== 'object') {
+    db.followedClubsByUser = {};
+    changed = true;
+  }
+  if (!db.bookmarkedEventsByUser || typeof db.bookmarkedEventsByUser !== 'object') {
+    db.bookmarkedEventsByUser = {};
+    changed = true;
+  }
+  if (!db.readNotificationsByUser || typeof db.readNotificationsByUser !== 'object') {
+    db.readNotificationsByUser = {};
+    changed = true;
+  }
+  const superAdminKey = SUPER_ADMIN_EMAIL.toLowerCase();
+  if (!db.authCredentials[superAdminKey]) {
+    db.authCredentials[superAdminKey] = {
+      passwordHash: hashPassword('SuperAdmin@2026'),
+      updatedAt: new Date().toISOString(),
+    };
+    changed = true;
+  }
   if (changed) {
     saveDatabase(db);
   }
 
   return db;
+}
+
+function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${derived}`;
+}
+
+function verifyPassword(password: string, storedHash: string): boolean {
+  const parts = storedHash.split(':');
+  if (parts.length !== 2) return false;
+  const [salt, hashHex] = parts;
+  if (!salt || !hashHex) return false;
+  const derived = crypto.scryptSync(password, salt, 64);
+  const storedBuf = Buffer.from(hashHex, 'hex');
+  if (derived.length !== storedBuf.length) return false;
+  return crypto.timingSafeEqual(derived, storedBuf);
+}
+
+function resolveRoleForEmail(database: PortalDatabase, email: string) {
+  const clean = email.trim().toLowerCase();
+  if (isSuperAdminEmail(clean)) {
+    return {
+      role: 'super_admin' as const,
+      assignedClubIds: database.clubs.map((c) => c.id),
+    };
+  }
+  const assignedClubIds = database.clubAdmins
+    .filter((ca) => ca.user_email?.toLowerCase() === clean)
+    .map((ca) => ca.club_id);
+  if (assignedClubIds.length > 0) {
+    return {
+      role: 'club_admin' as const,
+      assignedClubIds,
+    };
+  }
+  return {
+    role: 'normal' as const,
+    assignedClubIds: [] as string[],
+  };
 }
 
 function saveDatabase(db: PortalDatabase) {
@@ -166,7 +249,82 @@ async function startServer() {
       clubAdmins: db.clubAdmins,
       activityLogs: db.activityLogs,
       profiles: db.profiles,
+      followedClubsByUser: db.followedClubsByUser || {},
+      bookmarkedEventsByUser: db.bookmarkedEventsByUser || {},
+      readNotificationsByUser: db.readNotificationsByUser || {},
     });
+  });
+
+  // --- FOLLOWED CLUBS & NOTIFICATION READ STATE ---
+  app.post('/api/portal/follows', (req, res) => {
+    const { email, clubId } = req.body as { email?: string; clubId?: string };
+    const cleanEmail = email?.trim().toLowerCase() || '';
+    if (!cleanEmail.endsWith('@iitdh.ac.in')) {
+      res.status(400).json({ error: 'Only @iitdh.ac.in accounts can follow clubs.' });
+      return;
+    }
+    if (!clubId || !db.clubs.some((c) => c.id === clubId)) {
+      res.status(404).json({ error: 'Club not found.' });
+      return;
+    }
+
+    db.followedClubsByUser = db.followedClubsByUser || {};
+    const current = db.followedClubsByUser[cleanEmail] || [];
+    const exists = current.includes(clubId);
+    const updated = exists ? current.filter((id) => id !== clubId) : [...current, clubId];
+    db.followedClubsByUser[cleanEmail] = updated;
+    saveDatabase(db);
+    res.json({ followedClubIds: updated, following: !exists });
+  });
+
+  app.post('/api/portal/bookmarks', (req, res) => {
+    const { email, eventId } = req.body as { email?: string; eventId?: string };
+    const cleanEmail = email?.trim().toLowerCase() || '';
+    if (!cleanEmail.endsWith('@iitdh.ac.in')) {
+      res.status(400).json({ error: 'Only @iitdh.ac.in accounts can bookmark events.' });
+      return;
+    }
+    if (!eventId || !db.events.some((e) => e.id === eventId)) {
+      res.status(404).json({ error: 'Event not found.' });
+      return;
+    }
+
+    db.bookmarkedEventsByUser = db.bookmarkedEventsByUser || {};
+    const current = db.bookmarkedEventsByUser[cleanEmail] || [];
+    const exists = current.includes(eventId);
+    const updated = exists ? current.filter((id) => id !== eventId) : [...current, eventId];
+    db.bookmarkedEventsByUser[cleanEmail] = updated;
+    saveDatabase(db);
+    res.json({ bookmarkedEventIds: updated, bookmarked: !exists });
+  });
+
+  app.post('/api/portal/notifications/read', (req, res) => {
+    const { email, notificationIds } = req.body as {
+      email?: string;
+      notificationIds?: string[];
+    };
+    const cleanEmail = email?.trim().toLowerCase() || '';
+    if (!cleanEmail.endsWith('@iitdh.ac.in')) {
+      res.status(400).json({ error: 'Only @iitdh.ac.in accounts can update notification state.' });
+      return;
+    }
+    if (!Array.isArray(notificationIds)) {
+      res.status(400).json({ error: 'notificationIds array is required.' });
+      return;
+    }
+
+    db.readNotificationsByUser = db.readNotificationsByUser || {};
+    const current = new Set(db.readNotificationsByUser[cleanEmail] || []);
+    for (const id of notificationIds) {
+      if (typeof id === 'string' && id.trim()) {
+        current.add(id.trim());
+      }
+    }
+    // Cap stored IDs at 500 most recent entries to keep file compact
+    const merged = Array.from(current).slice(-500);
+    db.readNotificationsByUser[cleanEmail] = merged;
+    saveDatabase(db);
+    res.json({ readIds: merged });
   });
 
   // Register or update institutional user profile
@@ -197,6 +355,106 @@ async function startServer() {
     db.profiles.push(newProfile);
     saveDatabase(db);
     res.status(201).json(newProfile);
+  });
+
+  // --- AUTHENTICATION (Sign Up & Login) ---
+  app.post('/api/portal/auth/signup', (req, res) => {
+    const { email, password, fullName } = req.body as {
+      email?: string;
+      password?: string;
+      fullName?: string;
+    };
+    const cleanEmail = email?.trim().toLowerCase() || '';
+    if (!cleanEmail.endsWith('@iitdh.ac.in')) {
+      res.status(400).json({
+        error: 'Registration rejected: Only institutional email addresses ending in @iitdh.ac.in are permitted.',
+      });
+      return;
+    }
+    if (!fullName || fullName.trim().length < 2) {
+      res.status(400).json({ error: 'Please enter your full name (at least 2 characters).' });
+      return;
+    }
+    if (!password || password.length < 6) {
+      res.status(400).json({ error: 'Password must be at least 6 characters in length.' });
+      return;
+    }
+
+    db.authCredentials = db.authCredentials || {};
+    if (db.authCredentials[cleanEmail]) {
+      res.status(409).json({
+        error: 'An account with this email is already registered. Please sign in with your password.',
+        code: 'ACCOUNT_EXISTS',
+      });
+      return;
+    }
+
+    db.authCredentials[cleanEmail] = {
+      passwordHash: hashPassword(password),
+      updatedAt: new Date().toISOString(),
+    };
+
+    let profile = db.profiles.find((p) => p.email.toLowerCase() === cleanEmail);
+    if (profile) {
+      profile.full_name = fullName.trim();
+    } else {
+      profile = {
+        id: crypto.randomUUID(),
+        email: cleanEmail,
+        full_name: fullName.trim(),
+        created_at: new Date().toISOString(),
+      };
+      db.profiles.push(profile);
+    }
+
+    saveDatabase(db);
+    const { role, assignedClubIds } = resolveRoleForEmail(db, cleanEmail);
+    res.status(201).json({ profile, role, assignedClubIds });
+  });
+
+  app.post('/api/portal/auth/login', (req, res) => {
+    const { email, password } = req.body as { email?: string; password?: string };
+    const cleanEmail = email?.trim().toLowerCase() || '';
+    if (!cleanEmail.endsWith('@iitdh.ac.in')) {
+      res.status(400).json({
+        error: 'Access restricted: Please enter an official IIT Dharwad institutional email (@iitdh.ac.in).',
+      });
+      return;
+    }
+    if (!password || password.length === 0) {
+      res.status(400).json({ error: 'Please enter your password to sign in.' });
+      return;
+    }
+
+    db.authCredentials = db.authCredentials || {};
+    const cred = db.authCredentials[cleanEmail];
+    if (!cred) {
+      res.status(401).json({
+        error: 'Account not registered yet. If you are new, please switch to New Registration to create your account.',
+        code: 'ACCOUNT_NOT_REGISTERED',
+      });
+      return;
+    }
+
+    if (!verifyPassword(password, cred.passwordHash)) {
+      res.status(401).json({ error: 'Invalid email or password.' });
+      return;
+    }
+
+    let profile = db.profiles.find((p) => p.email.toLowerCase() === cleanEmail);
+    if (!profile) {
+      profile = {
+        id: crypto.randomUUID(),
+        email: cleanEmail,
+        full_name: cleanEmail.split('@')[0],
+        created_at: new Date().toISOString(),
+      };
+      db.profiles.push(profile);
+      saveDatabase(db);
+    }
+
+    const { role, assignedClubIds } = resolveRoleForEmail(db, cleanEmail);
+    res.json({ profile, role, assignedClubIds });
   });
 
   // --- CLUBS CRUD (Super Admin only) ---
@@ -269,8 +527,23 @@ async function startServer() {
       return;
     }
 
+    const dateCheck = validateAndSanitizeEventDates({
+      event_date: event.event_date,
+      start_time: event.start_time,
+      end_time: event.end_time,
+      registration_deadline: event.registration_deadline,
+    });
+    if (!dateCheck.valid) {
+      res.status(400).json({ error: dateCheck.error });
+      return;
+    }
+
     const newEvent: EventItem = {
       ...event,
+      event_date: dateCheck.sanitized.event_date,
+      start_time: dateCheck.sanitized.start_time,
+      end_time: dateCheck.sanitized.end_time,
+      registration_deadline: dateCheck.sanitized.registration_deadline ?? undefined,
       id: crypto.randomUUID(),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -290,15 +563,34 @@ async function startServer() {
       return;
     }
 
-    const targetClubId = updates.club_id || db.events[index].club_id;
-    if (!isClubAdminFor(actorEmail, db.events[index].club_id) || !isClubAdminFor(actorEmail, targetClubId)) {
+    const existing = db.events[index];
+    const targetClubId = updates.club_id || existing.club_id;
+    if (!isClubAdminFor(actorEmail, existing.club_id) || !isClubAdminFor(actorEmail, targetClubId)) {
       res.status(403).json({ error: 'Forbidden: Not authorized to modify this event.' });
       return;
     }
 
+    const dateCheck = validateAndSanitizeEventDates({
+      event_date: updates.event_date !== undefined ? updates.event_date : existing.event_date,
+      start_time: updates.start_time !== undefined ? updates.start_time : existing.start_time,
+      end_time: updates.end_time !== undefined ? updates.end_time : existing.end_time,
+      registration_deadline:
+        updates.registration_deadline !== undefined
+          ? updates.registration_deadline
+          : existing.registration_deadline,
+    });
+    if (!dateCheck.valid) {
+      res.status(400).json({ error: dateCheck.error });
+      return;
+    }
+
     const updated: EventItem = {
-      ...db.events[index],
+      ...existing,
       ...updates,
+      event_date: dateCheck.sanitized.event_date,
+      start_time: dateCheck.sanitized.start_time,
+      end_time: dateCheck.sanitized.end_time,
+      registration_deadline: dateCheck.sanitized.registration_deadline ?? undefined,
       updated_at: new Date().toISOString(),
     };
     db.events[index] = updated;

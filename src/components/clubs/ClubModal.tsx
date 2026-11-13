@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Mail, Globe, Calendar, Megaphone, ArrowRight } from 'lucide-react';
+import { X, Mail, Calendar, Megaphone, ArrowRight, Check, Plus } from 'lucide-react';
 import { Club, EventItem, AnnouncementItem } from '../../types';
 
 interface ClubModalProps {
@@ -8,6 +8,8 @@ interface ClubModalProps {
   announcements: AnnouncementItem[];
   onClose: () => void;
   onSelectEvent: (event: EventItem) => void;
+  isFollowing?: boolean;
+  onToggleFollow?: (clubId: string) => void;
 }
 
 export const ClubModal: React.FC<ClubModalProps> = ({
@@ -16,6 +18,8 @@ export const ClubModal: React.FC<ClubModalProps> = ({
   announcements,
   onClose,
   onSelectEvent,
+  isFollowing = false,
+  onToggleFollow,
 }) => {
   if (!club) return null;
 
@@ -65,12 +69,38 @@ export const ClubModal: React.FC<ClubModalProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {onToggleFollow && (
+              <button
+                type="button"
+                onClick={() => onToggleFollow(club.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                  isFollowing
+                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                }`}
+              >
+                {isFollowing ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Following</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Follow Club</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            <button
+              onClick={onClose}
+              className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}

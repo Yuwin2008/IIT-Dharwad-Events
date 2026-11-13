@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase, SUPER_ADMIN_EMAIL } from './supabase';
+import { validateAndSanitizeEventDates } from './dateValidation';
 import {
   INITIAL_CLUBS,
   INITIAL_EVENTS,
@@ -15,6 +16,7 @@ import {
   ClubAdminAssignment,
   ActivityLogItem,
   Profile,
+  PortalNotification,
 } from '../types';
 
 export {
@@ -33,6 +35,10 @@ const STORAGE_KEYS = {
   CLUB_ADMINS: 'iitdh_portal_club_admins',
   ACTIVITY_LOGS: 'iitdh_portal_activity_logs',
   PROFILES: 'iitdh_portal_profiles',
+  FOLLOWED_CLUBS: 'iitdh_portal_followed_clubs',
+  BOOKMARKED_EVENTS: 'iitdh_portal_bookmarked_events',
+  TRIGGERED_REMINDERS: 'iitdh_portal_triggered_reminders',
+  READ_NOTIFICATIONS: 'iitdh_portal_read_notifications',
 };
 
 const isValidUuid = (value?: string | null): boolean => {
@@ -73,6 +79,10 @@ class DataStore {
   private clubAdmins: ClubAdminAssignment[] = [];
   private activityLogs: ActivityLogItem[] = [];
   private profiles: Profile[] = [];
+  private followedClubsByUser: Record<string, string[]> = {};
+  private bookmarkedEventsByUser: Record<string, string[]> = {};
+  private triggeredRemindersByUser: Record<string, Array<{ id: string; eventId: string; timestamp: string; minutesLeft: number }>> = {};
+  private readNotificationsByUser: Record<string, string[]> = {};
   private isSupabaseLive: boolean = false;
   private version: number = 0;
   private listeners: Set<() => void> = new Set();
@@ -106,6 +116,18 @@ class DataStore {
 
       const storedProfiles = localStorage.getItem(STORAGE_KEYS.PROFILES);
       this.profiles = storedProfiles ? JSON.parse(storedProfiles) : [...INITIAL_PROFILES];
+
+      const storedFollows = localStorage.getItem(STORAGE_KEYS.FOLLOWED_CLUBS);
+      this.followedClubsByUser = storedFollows ? JSON.parse(storedFollows) : {};
+
+      const storedBookmarks = localStorage.getItem(STORAGE_KEYS.BOOKMARKED_EVENTS);
+      this.bookmarkedEventsByUser = storedBookmarks ? JSON.parse(storedBookmarks) : {};
+
+      const storedTriggered = localStorage.getItem(STORAGE_KEYS.TRIGGERED_REMINDERS);
+      this.triggeredRemindersByUser = storedTriggered ? JSON.parse(storedTriggered) : {};
+
+      const storedReads = localStorage.getItem(STORAGE_KEYS.READ_NOTIFICATIONS);
+      this.readNotificationsByUser = storedReads ? JSON.parse(storedReads) : {};
     } catch {
       this.clubs = [...INITIAL_CLUBS];
       this.events = [...INITIAL_EVENTS];
@@ -113,6 +135,10 @@ class DataStore {
       this.clubAdmins = [...INITIAL_CLUB_ADMINS];
       this.activityLogs = [...INITIAL_ACTIVITY_LOGS];
       this.profiles = [...INITIAL_PROFILES];
+      this.followedClubsByUser = {};
+      this.bookmarkedEventsByUser = {};
+      this.triggeredRemindersByUser = {};
+      this.readNotificationsByUser = {};
     }
 
     // Sync from authoritative shared backend & Supabase
@@ -138,6 +164,10 @@ class DataStore {
       localStorage.setItem(STORAGE_KEYS.CLUB_ADMINS, JSON.stringify(this.clubAdmins));
       localStorage.setItem(STORAGE_KEYS.ACTIVITY_LOGS, JSON.stringify(this.activityLogs));
       localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(this.profiles));
+      localStorage.setItem(STORAGE_KEYS.FOLLOWED_CLUBS, JSON.stringify(this.followedClubsByUser));
+      localStorage.setItem(STORAGE_KEYS.BOOKMARKED_EVENTS, JSON.stringify(this.bookmarkedEventsByUser));
+      localStorage.setItem(STORAGE_KEYS.TRIGGERED_REMINDERS, JSON.stringify(this.triggeredRemindersByUser));
+      localStorage.setItem(STORAGE_KEYS.READ_NOTIFICATIONS, JSON.stringify(this.readNotificationsByUser));
     } catch (e) {
       console.warn('LocalStorage save error:', e);
     }
@@ -178,6 +208,15 @@ class DataStore {
       if (Array.isArray(data.clubAdmins)) this.clubAdmins = data.clubAdmins;
       if (Array.isArray(data.activityLogs)) this.activityLogs = data.activityLogs;
       if (Array.isArray(data.profiles)) this.profiles = data.profiles;
+      if (data.followedClubsByUser && typeof data.followedClubsByUser === 'object') {
+        this.followedClubsByUser = data.followedClubsByUser;
+      }
+      if (data.bookmarkedEventsByUser && typeof data.bookmarkedEventsByUser === 'object') {
+        this.bookmarkedEventsByUser = data.bookmarkedEventsByUser;
+      }
+      if (data.readNotificationsByUser && typeof data.readNotificationsByUser === 'object') {
+        this.readNotificationsByUser = data.readNotificationsByUser;
+      }
       this.save();
     } catch {
       // Offline / static fallback gracefully ignored
@@ -405,8 +444,26 @@ class DataStore {
     event: Omit<EventItem, 'id' | 'created_at' | 'club'>,
     actorEmail: string
   ): Promise<EventItem> {
-    const newEvent: EventItem = {
+    const dateCheck = validateAndSanitizeEventDates({
+      event_date: event.event_date,
+      start_time: event.start_time,
+      end_time: event.end_time,
+      registration_deadline: event.registration_deadline,
+    });
+    if (!dateCheck.valid) {
+      throw new Error(dateCheck.error);
+    }
+
+    const sanitizedEvent: Omit<EventItem, 'id' | 'created_at' | 'club'> = {
       ...event,
+      event_date: dateCheck.sanitized.event_date,
+      start_time: dateCheck.sanitized.start_time,
+      end_time: dateCheck.sanitized.end_time,
+      registration_deadline: dateCheck.sanitized.registration_deadline ?? undefined,
+    };
+
+    const newEvent: EventItem = {
+      ...sanitizedEvent,
       id: generateUuid(),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -416,7 +473,7 @@ class DataStore {
       const res = await fetch('/api/portal/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event, actorEmail }),
+        body: JSON.stringify({ event: sanitizedEvent, actorEmail }),
       });
       if (res.ok) {
         const created = (await res.json()) as EventItem;
@@ -454,11 +511,36 @@ class DataStore {
     const index = this.events.findIndex((e) => e.id === id);
     if (index === -1) throw new Error('Event not found');
 
+    const existing = this.events[index];
+    const dateCheck = validateAndSanitizeEventDates({
+      event_date: updates.event_date !== undefined ? updates.event_date : existing.event_date,
+      start_time: updates.start_time !== undefined ? updates.start_time : existing.start_time,
+      end_time: updates.end_time !== undefined ? updates.end_time : existing.end_time,
+      registration_deadline:
+        updates.registration_deadline !== undefined
+          ? updates.registration_deadline
+          : existing.registration_deadline,
+    });
+    if (!dateCheck.valid) {
+      throw new Error(dateCheck.error);
+    }
+
+    const sanitizedUpdates: Partial<EventItem> = {
+      ...updates,
+      event_date: dateCheck.sanitized.event_date,
+      start_time: dateCheck.sanitized.start_time,
+      end_time: dateCheck.sanitized.end_time,
+      registration_deadline:
+        updates.registration_deadline === null
+          ? null
+          : dateCheck.sanitized.registration_deadline ?? undefined,
+    };
+
     try {
       const res = await fetch(`/api/portal/events/${encodeURIComponent(id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates, actorEmail }),
+        body: JSON.stringify({ updates: sanitizedUpdates, actorEmail }),
       });
       if (res.ok) {
         const updated = (await res.json()) as EventItem;
@@ -472,13 +554,14 @@ class DataStore {
     }
 
     const updated: EventItem = {
-      ...this.events[index],
-      ...updates,
+      ...existing,
+      ...sanitizedUpdates,
+      registration_deadline: dateCheck.sanitized.registration_deadline ?? undefined,
       updated_at: new Date().toISOString(),
     };
 
     try {
-      const { error } = await supabase.from('events').update(updates).eq('id', id);
+      const { error } = await supabase.from('events').update(sanitizedUpdates).eq('id', id);
       if (!error) this.isSupabaseLive = true;
     } catch {}
 
@@ -800,6 +883,211 @@ class DataStore {
       this.activityLogs = this.activityLogs.slice(0, 200);
     }
     this.save();
+  }
+
+  // --- CLUB FOLLOWING & STUDENT NOTIFICATIONS ---
+  public getFollowedClubIds(userEmail?: string): string[] {
+    if (!userEmail) return [];
+    const key = userEmail.trim().toLowerCase();
+    return [...(this.followedClubsByUser[key] || [])];
+  }
+
+  public isFollowingClub(userEmail: string | undefined, clubId: string): boolean {
+    if (!userEmail || !clubId) return false;
+    const key = userEmail.trim().toLowerCase();
+    return (this.followedClubsByUser[key] || []).includes(clubId);
+  }
+
+  public async toggleFollowClub(userEmail: string, clubId: string): Promise<string[]> {
+    const key = userEmail.trim().toLowerCase();
+    if (!key) return [];
+
+    const current = this.followedClubsByUser[key] || [];
+    const exists = current.includes(clubId);
+    const optimistic = exists ? current.filter((id) => id !== clubId) : [...current, clubId];
+    this.followedClubsByUser[key] = optimistic;
+    this.save();
+
+    try {
+      const res = await fetch('/api/portal/follows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: key, clubId }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { followedClubIds?: string[] };
+        if (Array.isArray(data.followedClubIds)) {
+          this.followedClubsByUser[key] = data.followedClubIds;
+          this.save();
+          return [...data.followedClubIds];
+        }
+      }
+    } catch {}
+
+    return optimistic;
+  }
+
+  public getReadNotificationIds(userEmail?: string): string[] {
+    if (!userEmail) return [];
+    const key = userEmail.trim().toLowerCase();
+    return [...(this.readNotificationsByUser[key] || [])];
+  }
+
+  public async markNotificationsRead(userEmail: string, notificationIds: string[]): Promise<void> {
+    const key = userEmail.trim().toLowerCase();
+    if (!key || notificationIds.length === 0) return;
+
+    const merged = Array.from(new Set([...(this.readNotificationsByUser[key] || []), ...notificationIds]));
+    this.readNotificationsByUser[key] = merged;
+    this.save();
+
+    try {
+      const res = await fetch('/api/portal/notifications/read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: key, notificationIds }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { readIds?: string[] };
+        if (Array.isArray(data.readIds)) {
+          this.readNotificationsByUser[key] = data.readIds;
+          this.save();
+        }
+      }
+    } catch {}
+  }
+
+  // --- EVENT BOOKMARKS & 30-MIN REMINDERS ---
+  public getBookmarkedEventIds(userEmail?: string): string[] {
+    if (!userEmail) return [];
+    const key = userEmail.trim().toLowerCase();
+    return [...(this.bookmarkedEventsByUser[key] || [])];
+  }
+
+  public isEventBookmarked(userEmail: string | undefined, eventId: string): boolean {
+    if (!userEmail || !eventId) return false;
+    const key = userEmail.trim().toLowerCase();
+    return (this.bookmarkedEventsByUser[key] || []).includes(eventId);
+  }
+
+  public async toggleBookmarkEvent(userEmail: string, eventId: string): Promise<string[]> {
+    const key = userEmail.trim().toLowerCase();
+    if (!key) return [];
+
+    const current = this.bookmarkedEventsByUser[key] || [];
+    const exists = current.includes(eventId);
+    const optimistic = exists ? current.filter((id) => id !== eventId) : [...current, eventId];
+    this.bookmarkedEventsByUser[key] = optimistic;
+    this.save();
+
+    try {
+      const res = await fetch('/api/portal/bookmarks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: key, eventId }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { bookmarkedEventIds?: string[] };
+        if (Array.isArray(data.bookmarkedEventIds)) {
+          this.bookmarkedEventsByUser[key] = data.bookmarkedEventIds;
+          this.save();
+          return [...data.bookmarkedEventIds];
+        }
+      }
+    } catch {}
+
+    return optimistic;
+  }
+
+  public recordTriggeredEventReminder(
+    userEmail: string,
+    eventId: string,
+    startMs: number,
+    minutesLeft: number
+  ): void {
+    const key = userEmail.trim().toLowerCase();
+    if (!key || !eventId) return;
+    const notifId = `rem:${eventId}:${startMs}`;
+    const list = this.triggeredRemindersByUser[key] || [];
+    if (list.some((r) => r.id === notifId)) return;
+
+    this.triggeredRemindersByUser[key] = [
+      { id: notifId, eventId, timestamp: new Date().toISOString(), minutesLeft },
+      ...list,
+    ].slice(0, 100);
+    this.save();
+  }
+
+  public getStudentNotifications(userEmail?: string): PortalNotification[] {
+    const followedSet = new Set(this.getFollowedClubIds(userEmail));
+    const readSet = new Set(this.getReadNotificationIds(userEmail));
+    const items: PortalNotification[] = [];
+
+    // 0. 30-minute upcoming bookmarked event reminders
+    const cleanEmail = userEmail?.trim().toLowerCase();
+    if (cleanEmail) {
+      const triggered = this.triggeredRemindersByUser[cleanEmail] || [];
+      for (const rem of triggered) {
+        const evt = this.events.find((e) => e.id === rem.eventId && e.status === 'Published');
+        if (!evt) continue;
+        const club = this.getClubById(evt.club_id);
+        items.push({
+          id: rem.id,
+          kind: 'reminder',
+          title: `Starting in ${Math.max(1, rem.minutesLeft)} min: ${evt.title}`,
+          message: `Reminder for your bookmarked event at ${evt.venue || 'Campus Venue'}${evt.start_time ? ` (${evt.start_time.slice(0, 5)} IST)` : ''}.`,
+          clubId: evt.club_id,
+          clubName: club?.name || 'Bookmarked Event',
+          timestamp: rem.timestamp,
+          isFollowedClub: followedSet.has(evt.club_id),
+          isRead: readSet.has(rem.id),
+          event: { ...evt, club },
+        });
+      }
+    }
+
+    // 1. New announcements posted by clubs the user follows
+    for (const ann of this.announcements) {
+      if (ann.status !== 'Published') continue;
+      if (!ann.club_id || !followedSet.has(ann.club_id)) continue;
+      const club = this.getClubById(ann.club_id);
+      const id = `ann:${ann.id}`;
+      items.push({
+        id,
+        kind: 'announcement',
+        title: ann.title,
+        message: ann.content,
+        clubId: ann.club_id,
+        clubName: club?.name || 'Followed Club',
+        timestamp: ann.published_at || ann.created_at,
+        isFollowedClub: true,
+        isRead: readSet.has(id),
+        announcement: { ...ann, club },
+      });
+    }
+
+    // 2. New events added across the portal
+    for (const evt of this.events) {
+      if (evt.status !== 'Published') continue;
+      const club = this.getClubById(evt.club_id);
+      const id = `evt:${evt.id}`;
+      items.push({
+        id,
+        kind: 'event',
+        title: evt.title,
+        message: evt.short_description || evt.description || `Scheduled on ${evt.event_date} at ${evt.venue}`,
+        clubId: evt.club_id,
+        clubName: club?.name || 'Campus Club',
+        timestamp: evt.created_at || evt.updated_at || evt.event_date,
+        isFollowedClub: followedSet.has(evt.club_id),
+        isRead: readSet.has(id),
+        event: { ...evt, club },
+      });
+    }
+
+    return items.sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
   }
 }
 

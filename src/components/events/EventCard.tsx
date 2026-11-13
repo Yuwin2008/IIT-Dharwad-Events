@@ -1,28 +1,31 @@
 import React from 'react';
-import { Calendar, Clock, MapPin, ExternalLink, ArrowRight } from 'lucide-react';
+import { Calendar, Clock, MapPin, ExternalLink, ArrowRight, Bookmark } from 'lucide-react';
 import { EventItem } from '../../types';
+import { formatCalendarDate } from '../../lib/dateValidation';
 
 interface EventCardProps {
   event: EventItem;
   onOpenDetails: (event: EventItem) => void;
+  isBookmarked?: boolean;
+  onToggleBookmark?: (eventId: string) => void;
 }
 
-export const EventCard: React.FC<EventCardProps> = ({ event, onOpenDetails }) => {
+export const EventCard: React.FC<EventCardProps> = ({
+  event,
+  onOpenDetails,
+  isBookmarked = false,
+  onToggleBookmark,
+}) => {
   // Check registration status
   const isRegistrationClosed = (() => {
     if (event.id === 'e1111111-1111-4111-b111-111111111111') return true; // VIBE-A-THON reg closed 9 Nov
     if (!event.registration_deadline) return false;
-    return new Date(event.registration_deadline).getTime() < new Date('2026-11-12T04:00:00Z').getTime();
+    const deadlineMs = new Date(event.registration_deadline).getTime();
+    if (isNaN(deadlineMs)) return false;
+    return deadlineMs < new Date('2026-11-12T04:00:00Z').getTime();
   })();
 
-  const formatDate = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr);
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    } catch {
-      return dateStr;
-    }
-  };
+  const formatDate = (dateStr: string) => formatCalendarDate(dateStr, 'short');
 
   return (
     <div className="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-xl overflow-hidden shadow-lg transition-all flex flex-col group">
@@ -41,11 +44,33 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onOpenDetails }) =>
           {event.category}
         </div>
 
-        {event.status === 'Draft' && (
+        {event.status === 'Draft' ? (
           <div className="absolute top-3 right-3 text-[11px] font-semibold text-amber-300 bg-amber-950/90 border border-amber-800 px-2 py-0.5 rounded">
             Draft
           </div>
-        )}
+        ) : onToggleBookmark ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleBookmark(event.id);
+            }}
+            className={`absolute top-3 right-3 px-2.5 py-1 rounded-lg border text-[11px] font-semibold backdrop-blur-md transition-colors flex items-center gap-1 ${
+              isBookmarked
+                ? 'bg-indigo-600 text-white border-indigo-400 shadow-sm'
+                : 'bg-slate-900/90 hover:bg-slate-800 text-slate-200 border-slate-700/70'
+            }`}
+            title={
+              isBookmarked
+                ? 'Bookmarked (30-min push reminder active). Click to remove.'
+                : 'Bookmark event for a 30-min browser push reminder'
+            }
+            aria-label={isBookmarked ? 'Remove event bookmark' : 'Bookmark event'}
+          >
+            <Bookmark className={`w-3.5 h-3.5 ${isBookmarked ? 'fill-current' : ''}`} />
+            <span>{isBookmarked ? 'Bookmarked' : 'Bookmark'}</span>
+          </button>
+        ) : null}
       </div>
 
       {/* Content */}

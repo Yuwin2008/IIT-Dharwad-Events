@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/authContext';
 import { dataStore, useDataStoreVersion } from '../../lib/dataStore';
+import {
+  combineDateAndTimeToIso,
+  sanitizeDateString,
+  validateAndSanitizeEventDates,
+} from '../../lib/dateValidation';
 import { 
   Calendar, 
   Plus, 
@@ -95,9 +100,9 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
     setCategory(evt.category);
     setShortDesc(evt.short_description);
     setFullDesc(evt.description);
-    setEventDate(evt.event_date);
-    setStartTime(evt.start_time || '10:00:00');
-    setEndTime(evt.end_time || '17:00:00');
+    setEventDate(sanitizeDateString(evt.event_date) || '2026-11-20');
+    setStartTime(evt.start_time ? evt.start_time.slice(0, 5) : '10:00');
+    setEndTime(evt.end_time ? evt.end_time.slice(0, 5) : '17:00');
     setVenue(evt.venue);
     setRegUrl(evt.registration_url || '');
     if (evt.registration_deadline) {
@@ -141,15 +146,26 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
       return;
     }
 
-    let parsedDeadlineIso: string | undefined;
-    if (regDeadlineDate) {
-      const timePart = (regDeadlineTime || '23:59').slice(0, 5);
-      const deadlineObj = new Date(`${regDeadlineDate}T${timePart}:00`);
-      if (isNaN(deadlineObj.getTime())) {
-        setErrorMessage('Please enter a valid registration deadline date and time.');
+    let candidateDeadline: string | null = null;
+    if (regDeadlineDate.trim()) {
+      const combined = combineDateAndTimeToIso(regDeadlineDate, regDeadlineTime || '23:59');
+      if (!combined) {
+        setErrorMessage('Please enter a valid Registration Deadline date and time.');
         return;
       }
-      parsedDeadlineIso = deadlineObj.toISOString();
+      candidateDeadline = combined;
+    }
+
+    const validation = validateAndSanitizeEventDates({
+      event_date: eventDate,
+      start_time: startTime,
+      end_time: endTime,
+      registration_deadline: candidateDeadline,
+    });
+
+    if (!validation.valid) {
+      setErrorMessage(validation.error);
+      return;
     }
 
     try {
@@ -160,12 +176,12 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
         category,
         short_description: shortDesc.trim(),
         description: fullDesc.trim() || shortDesc.trim(),
-        event_date: eventDate,
-        start_time: startTime,
-        end_time: endTime,
+        event_date: validation.sanitized.event_date,
+        start_time: validation.sanitized.start_time,
+        end_time: validation.sanitized.end_time,
         venue: venue.trim() || 'To be announced',
         registration_url: regUrl.trim() || undefined,
-        registration_deadline: parsedDeadlineIso,
+        registration_deadline: validation.sanitized.registration_deadline ?? null,
         poster_url: posterUrl.trim(),
         status: effectiveStatus,
         created_by: user?.id,
@@ -173,10 +189,10 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
 
       if (editingId) {
         await dataStore.updateEvent(editingId, eventPayload, user?.email || 'admin');
-        setSuccessMessage(`Event "${title}" successfully updated!`);
+        setSuccessMessage(`Event "${title.trim()}" successfully updated!`);
       } else {
         await dataStore.createEvent(eventPayload, user?.email || 'admin');
-        setSuccessMessage(`Event "${title}" successfully created!`);
+        setSuccessMessage(`Event "${title.trim()}" successfully created!`);
       }
 
       resetForm();

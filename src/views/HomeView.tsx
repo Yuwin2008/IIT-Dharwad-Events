@@ -16,6 +16,10 @@ import {
   ShieldCheck,
   Compass
 } from 'lucide-react';
+import {
+  getBrowserPushPermission,
+  requestBrowserPushPermission,
+} from '../lib/pushNotifications';
 import { EventItem, Club, AnnouncementItem } from '../types';
 
 interface HomeViewProps {
@@ -37,6 +41,18 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const clubs = dataStore.getClubs();
   const allEvents = dataStore.getEvents(false);
   const announcements = dataStore.getAnnouncements(false);
+
+  const handleToggleBookmark = (eventId: string) => {
+    if (!user?.email) {
+      onOpenAuth();
+      return;
+    }
+    const wasBookmarked = dataStore.isEventBookmarked(user.email, eventId);
+    void dataStore.toggleBookmarkEvent(user.email, eventId);
+    if (!wasBookmarked && getBrowserPushPermission() === 'default') {
+      void requestBrowserPushPermission(user.email);
+    }
+  };
 
   // Featured event is VIBE-A-THON
   const featuredEvent = allEvents.find((e) => e.title.includes('VIBE-A-THON')) || allEvents[0];
@@ -269,6 +285,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   key={evt.id}
                   event={evt}
                   onOpenDetails={onOpenDetails}
+                  isBookmarked={user ? dataStore.isEventBookmarked(user.email, evt.id) : false}
+                  onToggleBookmark={handleToggleBookmark}
                 />
               ))}
             </div>

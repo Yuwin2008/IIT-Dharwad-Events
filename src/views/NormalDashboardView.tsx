@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../lib/authContext';
 import { dataStore, useDataStoreVersion } from '../lib/dataStore';
 import { EventCard } from '../components/events/EventCard';
 import { ClubCard } from '../components/clubs/ClubCard';
 import { AnnouncementCard } from '../components/announcements/AnnouncementCard';
 import { VibeAThonHero } from '../components/events/VibeAThonHero';
+import { NotificationCenter } from '../components/notifications/NotificationCenter';
+import { formatDateTimeDisplay } from '../lib/dateValidation';
 import { 
   LayoutDashboard, 
   Calendar, 
@@ -13,14 +15,20 @@ import {
   User as UserIcon, 
   LogOut, 
   Search, 
-  Filter, 
-  Clock, 
   ShieldCheck, 
   GraduationCap,
-  ExternalLink,
-  ChevronRight
+  ChevronRight,
+  Bell,
+  BellRing,
+  CheckCheck,
+  X,
+  Bookmark
 } from 'lucide-react';
-import { EventItem, Club, AnnouncementItem } from '../types';
+import {
+  getBrowserPushPermission,
+  requestBrowserPushPermission,
+} from '../lib/pushNotifications';
+import { EventItem, Club, PortalNotification } from '../types';
 
 interface NormalDashboardViewProps {
   initialTab?: string;
@@ -46,11 +54,36 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
   const clubs = dataStore.getClubs();
   const events = dataStore.getEvents(false);
   const announcements = dataStore.getAnnouncements(false);
+  const followedClubIds = dataStore.getFollowedClubIds(user?.email);
+  const bookmarkedEventIds = dataStore.getBookmarkedEventIds(user?.email);
+  const bookmarkedEvents = events.filter((e) => bookmarkedEventIds.includes(e.id));
+  const notifications = dataStore.getStudentNotifications(user?.email);
+  const unreadNotifications = notifications.filter((n) => !n.isRead);
+
+  // Notification popover & live incoming alert banner
+  const [notifMenuOpen, setNotifMenuOpen] = useState(false);
+  const [liveAlert, setLiveAlert] = useState<PortalNotification | null>(null);
+  const seenNotifIdsRef = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    const currentIds = new Set(notifications.map((n) => n.id));
+    if (seenNotifIdsRef.current === null) {
+      seenNotifIdsRef.current = currentIds;
+      return;
+    }
+
+    const newlyArrived = notifications.find((n) => !seenNotifIdsRef.current!.has(n.id) && !n.isRead);
+    seenNotifIdsRef.current = currentIds;
+    if (newlyArrived) {
+      setLiveAlert(newlyArrived);
+    }
+  }, [notifications]);
 
   // Filters for Events Tab
   const [eventSearch, setEventSearch] = useState('');
   const [clubFilter, setClubFilter] = useState('ALL');
   const [timeFilter, setTimeFilter] = useState<'upcoming' | 'all'>('upcoming');
+  const [bookmarkedOnlyFilter, setBookmarkedOnlyFilter] = useState(false);
 
   // Filters for Announcements Tab
   const [announcementClubFilter, setAnnouncementClubFilter] = useState('ALL');
@@ -61,8 +94,49 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
 
   const featuredEvent = events.find((e) => e.title.includes('VIBE-A-THON')) || events[0];
 
+  const handleToggleFollow = (clubId: string) => {
+    if (!user?.email) return;
+    void dataStore.toggleFollowClub(user.email, clubId);
+  };
+
+  const handleToggleBookmark = (eventId: string) => {
+    if (!user?.email) return;
+    const wasBookmarked = dataStore.isEventBookmarked(user.email, eventId);
+    void dataStore.toggleBookmarkEvent(user.email, eventId);
+    if (!wasBookmarked && getBrowserPushPermission() === 'default') {
+      void requestBrowserPushPermission(user.email);
+    }
+  };
+
+  const handleMarkNotificationsRead = (ids: string[]) => {
+    if (!user?.email || ids.length === 0) return;
+    void dataStore.markNotificationsRead(user.email, ids);
+  };
+
+  const handleMarkAllRead = () => {
+    const unreadIds = unreadNotifications.map((n) => n.id);
+    if (unreadIds.length > 0) {
+      handleMarkNotificationsRead(unreadIds);
+    }
+  };
+
+  const handleOpenNotificationItem = (item: PortalNotification) => {
+    if (!item.isRead) {
+      handleMarkNotificationsRead([item.id]);
+    }
+    setNotifMenuOpen(false);
+    setLiveAlert(null);
+    if ((item.kind === 'event' || item.kind === 'reminder') && item.event) {
+      onOpenDetails(item.event);
+    } else if (item.kind === 'announcement') {
+      setAnnouncementClubFilter(item.clubId || 'ALL');
+      setActiveTab('announcements');
+    }
+  };
+
   // Event filtering logic
   const filteredEvents = events.filter((evt) => {
+    if (bookmarkedOnlyFilter && !bookmarkedEventIds.includes(evt.id)) return false;
     if (clubFilter !== 'ALL' && evt.club_id !== clubFilter) return false;
     if (timeFilter === 'upcoming') {
       const isPast = new Date(evt.event_date).getTime() < new Date('2026-11-12').getTime();
@@ -185,6 +259,27 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
             </button>
 
             <button
+              onClick={() => setActiveTab('notifications')}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
+                activeTab === 'notifications'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Bell className="w-4 h-4" />
+                <span>Notification Center</span>
+              </div>
+              {unreadNotifications.length > 0 ? (
+                <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 text-amber-300 font-mono text-[10px] font-bold">
+                  {unreadNotifications.length}
+                </span>
+              ) : (
+                <span className="font-mono text-[11px] opacity-75">{notifications.length}</span>
+              )}
+            </button>
+
+            <button
               onClick={() => setActiveTab('account')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'account'
@@ -230,11 +325,47 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
 
         {/* Main Content Viewport */}
         <main className="lg:col-span-9 space-y-8">
+          {/* Live Incoming Alert Toast Banner */}
+          {liveAlert && (
+            <div className="p-4 bg-indigo-950/70 border border-indigo-500/50 rounded-xl shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-200">
+              <div className="flex items-start gap-3">
+                <BellRing className="w-5 h-5 text-indigo-300 shrink-0 mt-0.5" />
+                <div className="text-xs space-y-0.5">
+                  <span className="font-bold text-indigo-200 uppercase tracking-wider text-[10px] block">
+                    {liveAlert.kind === 'reminder'
+                      ? `Starting Soon · ${liveAlert.clubName}`
+                      : liveAlert.kind === 'announcement'
+                      ? `New Announcement from ${liveAlert.clubName}`
+                      : `New Event Added by ${liveAlert.clubName}`}
+                  </span>
+                  <p className="text-sm font-bold text-white">{liveAlert.title}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleOpenNotificationItem(liveAlert)}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors"
+                >
+                  View Alert
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLiveAlert(null)}
+                  className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-800/70 transition-colors"
+                  aria-label="Dismiss live alert"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* OVERVIEW TAB */}
           {activeTab === 'overview' && (
             <div className="space-y-8">
               {/* Welcome message */}
-              <div className="p-6 bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 border border-slate-800 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="p-6 bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 border border-slate-800 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative">
                 <div>
                   <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider block">
                     IIT Dharwad Student Portal
@@ -248,6 +379,116 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-3">
+                  {/* Notification Center Quick Bell & Popover */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setNotifMenuOpen((prev) => !prev)}
+                      className="px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 relative"
+                      aria-label="Open notification center"
+                    >
+                      <Bell className="w-4 h-4 text-indigo-400" />
+                      <span>Alerts</span>
+                      {unreadNotifications.length > 0 && (
+                        <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-white font-mono text-[10px] font-bold">
+                          {unreadNotifications.length}
+                        </span>
+                      )}
+                    </button>
+
+                    {notifMenuOpen && (
+                      <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-30 overflow-hidden">
+                        <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                          <div>
+                            <h4 className="text-xs font-bold text-white">Notification Center</h4>
+                            <span className="text-[11px] text-slate-400">
+                              {unreadNotifications.length} unread · {followedClubIds.length} clubs followed
+                            </span>
+                          </div>
+                          {unreadNotifications.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={handleMarkAllRead}
+                              className="text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1"
+                            >
+                              <CheckCheck className="w-3.5 h-3.5" />
+                              <span>Mark all read</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="max-h-72 overflow-y-auto divide-y divide-slate-800/80">
+                          {notifications.length === 0 ? (
+                            <div className="p-6 text-center text-xs text-slate-400">
+                              No notifications yet. Follow clubs or check back for new events.
+                            </div>
+                          ) : (
+                            notifications.slice(0, 5).map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => handleOpenNotificationItem(item)}
+                                className={`w-full text-left px-4 py-3 hover:bg-slate-800/70 transition-colors flex items-start gap-2.5 ${
+                                  item.isRead ? 'opacity-75' : 'bg-indigo-950/20'
+                                }`}
+                              >
+                                <span
+                                  className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${
+                                    item.isRead ? 'bg-slate-600' : 'bg-indigo-400'
+                                  }`}
+                                />
+                                <div className="min-w-0 flex-1 space-y-0.5">
+                                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                                    <span
+                                      className={
+                                        item.kind === 'reminder'
+                                          ? 'text-amber-300 font-semibold'
+                                          : item.kind === 'announcement'
+                                          ? 'text-purple-300 font-semibold'
+                                          : 'text-emerald-300 font-semibold'
+                                      }
+                                    >
+                                      {item.kind === 'reminder'
+                                        ? '30m Reminder'
+                                        : item.kind === 'announcement'
+                                        ? 'Announcement'
+                                        : 'New Event'}{' '}
+                                      · {item.clubName}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs font-semibold text-white truncate">{item.title}</p>
+                                  <p className="text-[10px] text-slate-400">
+                                    {formatDateTimeDisplay(item.timestamp)}
+                                  </p>
+                                </div>
+                              </button>
+                            ))
+                          )}
+                        </div>
+
+                        <div className="px-4 py-2.5 bg-slate-950/70 border-t border-slate-800 flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNotifMenuOpen(false);
+                              setActiveTab('notifications');
+                            }}
+                            className="text-xs font-semibold text-indigo-400 hover:text-indigo-300"
+                          >
+                            Open Full Notification Center →
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNotifMenuOpen(false)}
+                            className="text-[11px] text-slate-400 hover:text-white"
+                          >
+                            Close
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <button
                     onClick={() => setActiveTab('upcoming')}
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm shadow-indigo-950"
@@ -318,6 +559,8 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                       key={evt.id}
                       event={evt}
                       onOpenDetails={onOpenDetails}
+                      isBookmarked={bookmarkedEventIds.includes(evt.id)}
+                      onToggleBookmark={handleToggleBookmark}
                     />
                   ))}
                 </div>
@@ -360,7 +603,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
 
               {/* Filters */}
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={clubFilter}
                     onChange={(e) => setClubFilter(e.target.value)}
@@ -382,6 +625,19 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                     <option value="upcoming">Upcoming Events</option>
                     <option value="all">All Events (Including Past)</option>
                   </select>
+
+                  <button
+                    type="button"
+                    onClick={() => setBookmarkedOnlyFilter((prev) => !prev)}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1.5 ${
+                      bookmarkedOnlyFilter
+                        ? 'bg-indigo-600 text-white border-indigo-500'
+                        : 'bg-slate-950 text-slate-300 hover:text-white border-slate-800'
+                    }`}
+                  >
+                    <Bookmark className="w-3.5 h-3.5" />
+                    <span>Bookmarked Only ({bookmarkedEventIds.length})</span>
+                  </button>
                 </div>
 
                 <div className="relative min-w-[220px]">
@@ -408,6 +664,8 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                       key={evt.id}
                       event={evt}
                       onOpenDetails={onOpenDetails}
+                      isBookmarked={bookmarkedEventIds.includes(evt.id)}
+                      onToggleBookmark={handleToggleBookmark}
                     />
                   ))}
                 </div>
@@ -471,6 +729,8 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                       club={club}
                       eventCount={eventCount}
                       onSelect={onSelectClub}
+                      isFollowing={followedClubIds.includes(club.id)}
+                      onToggleFollow={handleToggleFollow}
                     />
                   );
                 })}
@@ -512,6 +772,26 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                 ))}
               </div>
             </div>
+          )}
+
+          {/* NOTIFICATION CENTER TAB */}
+          {activeTab === 'notifications' && (
+            <NotificationCenter
+              notifications={notifications}
+              clubs={clubs}
+              followedClubIds={followedClubIds}
+              onToggleFollow={handleToggleFollow}
+              onMarkRead={handleMarkNotificationsRead}
+              onMarkAllRead={handleMarkAllRead}
+              onOpenEvent={onOpenDetails}
+              onOpenAnnouncementsTab={(clubId) => {
+                setAnnouncementClubFilter(clubId || 'ALL');
+                setActiveTab('announcements');
+              }}
+              userEmail={user?.email}
+              bookmarkedEvents={bookmarkedEvents}
+              onToggleBookmark={handleToggleBookmark}
+            />
           )}
 
           {/* MY ACCOUNT TAB */}

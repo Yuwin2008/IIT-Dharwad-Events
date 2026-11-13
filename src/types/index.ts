@@ -41,7 +41,7 @@ export interface EventItem {
   end_time?: string; // HH:MM:SS
   venue: string;
   registration_url?: string;
-  registration_deadline?: string;
+  registration_deadline?: string | null;
   poster_url?: string;
   status: EventStatus;
   created_by?: string;
@@ -85,4 +85,20 @@ export interface AuthenticatedUser {
   fullName: string;
   role: UserRole;
   assignedClubIds: string[];
+}
+
+export type NotificationKind = 'announcement' | 'event' | 'reminder';
+
+export interface PortalNotification {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  message: string;
+  clubId?: string | null;
+  clubName: string;
+  timestamp: string;
+  isFollowedClub: boolean;
+  isRead: boolean;
+  event?: EventItem;
+  announcement?: AnnouncementItem;
 }

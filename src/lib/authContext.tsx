@@ -3,13 +3,19 @@ import { supabase, SUPER_ADMIN_EMAIL, isIITDHEmail } from './supabase';
 import { dataStore } from './dataStore';
 import { AuthenticatedUser, UserRole } from '../types';
 
+interface AuthResult {
+  success: boolean;
+  error?: string;
+  code?: string;
+}
+
 interface AuthContextType {
   user: AuthenticatedUser | null;
   loading: boolean;
-  login: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
-  signup: (email: string, password: string, fullName: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password?: string) => Promise<AuthResult>;
+  signup: (email: string, password: string, fullName: string) => Promise<AuthResult>;
   logout: () => Promise<void>;
-  switchTestAccount: (type: 'super_admin' | 'club_admin' | 'normal') => void;
+  switchToSuperAdmin: () => void;
   canAccessAdmin: boolean;
   isSuperAdmin: boolean;
   isClubAdmin: boolean;
@@ -24,7 +30,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Compute roles based on email
   const resolveUserRole = (email: string): { role: UserRole; assignedClubIds: string[] } => {
     const normalized = email.toLowerCase().trim();
     if (normalized === SUPER_ADMIN_EMAIL.toLowerCase()) {
@@ -48,38 +53,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   };
 
+  const applySessionStoragePolicy = (authUser: AuthenticatedUser) => {
+    if (authUser.role === 'super_admin') {
+      localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(authUser));
+    } else {
+      // Normal students and Club Admins must stay logged out between visits/reloads
+      localStorage.removeItem(LOCAL_USER_KEY);
+    }
+  };
+
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        // 1. Check active Supabase session
+        await dataStore.syncFromServer();
+
+        // 1. Check active Supabase session — only restore Super Admin automatically
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user?.email && isIITDHEmail(session.user.email)) {
-          const fullName = session.user.user_metadata?.full_name || session.user.email.split('@')[0];
-          dataStore.registerProfile(session.user.email, fullName);
           const { role, assignedClubIds } = resolveUserRole(session.user.email);
-          setUser({
-            id: session.user.id,
-            email: session.user.email,
-            fullName,
-            role,
-            assignedClubIds,
-          });
-          setLoading(false);
-          return;
+          if (role === 'super_admin') {
+            const fullName = session.user.user_metadata?.full_name || session.user.email.split('@')[0];
+            dataStore.registerProfile(session.user.email, fullName);
+            const authUser: AuthenticatedUser = {
+              id: session.user.id,
+              email: session.user.email,
+              fullName,
+              role,
+              assignedClubIds,
+            };
+            setUser(authUser);
+            applySessionStoragePolicy(authUser);
+            setLoading(false);
+            return;
+          } else {
+            // Ensure normal student and club admin accounts start logged out
+            await supabase.auth.signOut().catch(() => {});
+            localStorage.removeItem(LOCAL_USER_KEY);
+          }
         }
 
-        // 2. Check local stored user
+        // 2. Check local stored user — only restore Super Admin automatically
         const stored = localStorage.getItem(LOCAL_USER_KEY);
         if (stored) {
           const parsed = JSON.parse(stored) as AuthenticatedUser;
-          dataStore.registerProfile(parsed.email, parsed.fullName);
-          // Re-evaluate role in case assignments changed
           const { role, assignedClubIds } = resolveUserRole(parsed.email);
-          setUser({
-            ...parsed,
-            role,
-            assignedClubIds,
-          });
+          if (role === 'super_admin') {
+            dataStore.registerProfile(parsed.email, parsed.fullName);
+            setUser({
+              ...parsed,
+              role,
+              assignedClubIds,
+            });
+          } else {
+            localStorage.removeItem(LOCAL_USER_KEY);
+            setUser(null);
+          }
         }
       } catch (e) {
         console.error('Auth initialization error:', e);
@@ -101,7 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           prev.assignedClubIds.every((id, i) => id === assignedClubIds[i]);
         if (sameRole && sameClubs) return prev;
         const updated = { ...prev, role, assignedClubIds };
-        localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(updated));
+        applySessionStoragePolicy(updated);
         return updated;
       });
     });
@@ -109,62 +137,124 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
-  const login = async (email: string, password?: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (email: string, password?: string): Promise<AuthResult> => {
     const cleanEmail = email.toLowerCase().trim();
     if (!isIITDHEmail(cleanEmail)) {
-      return { success: false, error: 'Access restricted: Please enter an official IIT Dharwad institutional email (@iitdh.ac.in).' };
+      return {
+        success: false,
+        error: 'Access restricted: Please enter an official IIT Dharwad institutional email (@iitdh.ac.in).',
+      };
+    }
+
+    if (!password || !password.trim()) {
+      return { success: false, error: 'Please enter your password to sign in.' };
     }
 
     await dataStore.syncFromServer();
 
+    // 1. Verify credentials against server portal auth store
     try {
-      if (password) {
-        // Attempt Supabase login
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: cleanEmail,
-          password: password,
-        });
+      const res = await fetch('/api/portal/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password }),
+      });
 
-        if (!error && data?.user?.email) {
-          const fullName = data.user.user_metadata?.full_name || cleanEmail.split('@')[0];
-          await dataStore.registerProfile(cleanEmail, fullName);
-          const { role, assignedClubIds } = resolveUserRole(cleanEmail);
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const body = await res.json();
+        if (res.ok && body?.profile) {
           const authUser: AuthenticatedUser = {
-            id: data.user.id,
+            id: body.profile.id,
             email: cleanEmail,
-            fullName,
-            role,
-            assignedClubIds,
+            fullName: body.profile.full_name,
+            role: body.role,
+            assignedClubIds: body.assignedClubIds || [],
           };
           setUser(authUser);
-          localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(authUser));
+          applySessionStoragePolicy(authUser);
+          await dataStore.syncFromServer();
           return { success: true };
         }
+
+        // Also try Supabase Auth in case account was created directly in Supabase
+        try {
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password,
+          });
+          if (!error && data?.user?.email) {
+            const fullName = data.user.user_metadata?.full_name || cleanEmail.split('@')[0];
+            await dataStore.registerProfile(cleanEmail, fullName);
+            const { role, assignedClubIds } = resolveUserRole(cleanEmail);
+            const authUser: AuthenticatedUser = {
+              id: data.user.id,
+              email: cleanEmail,
+              fullName,
+              role,
+              assignedClubIds,
+            };
+            if (role !== 'super_admin') {
+              await supabase.auth.signOut().catch(() => {});
+            }
+            setUser(authUser);
+            applySessionStoragePolicy(authUser);
+            return { success: true };
+          }
+        } catch {}
+
+        return {
+          success: false,
+          error: body?.error || 'Invalid email or password.',
+          code: body?.code,
+        };
       }
     } catch {}
 
-    // Resilient fallback for institutional credentials
-    const existingProfile = dataStore.getProfiles().find((p) => p.email.toLowerCase() === cleanEmail);
-    const fullName = existingProfile?.full_name || cleanEmail.split('@')[0].replace('.', ' ').toUpperCase();
-    await dataStore.registerProfile(cleanEmail, fullName);
-    const { role, assignedClubIds } = resolveUserRole(cleanEmail);
-    const authUser: AuthenticatedUser = {
-      id: existingProfile?.id || 'usr_' + cleanEmail.replace(/[^a-zA-Z0-9]/g, '_'),
-      email: cleanEmail,
-      fullName,
-      role,
-      assignedClubIds,
-    };
+    // 2. Fallback to Supabase Auth if Express API is unavailable
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
 
-    setUser(authUser);
-    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(authUser));
-    return { success: true };
+      if (!error && data?.user?.email) {
+        const fullName = data.user.user_metadata?.full_name || cleanEmail.split('@')[0];
+        await dataStore.registerProfile(cleanEmail, fullName);
+        const { role, assignedClubIds } = resolveUserRole(cleanEmail);
+        const authUser: AuthenticatedUser = {
+          id: data.user.id,
+          email: cleanEmail,
+          fullName,
+          role,
+          assignedClubIds,
+        };
+        if (role !== 'super_admin') {
+          await supabase.auth.signOut().catch(() => {});
+        }
+        setUser(authUser);
+        applySessionStoragePolicy(authUser);
+        return { success: true };
+      }
+    } catch {}
+
+    return {
+      success: false,
+      error: 'Unable to authenticate. Please verify your credentials or register as a new user.',
+    };
   };
 
-  const signup = async (email: string, password: string, fullName: string): Promise<{ success: boolean; error?: string }> => {
+  const signup = async (email: string, password: string, fullName: string): Promise<AuthResult> => {
     const cleanEmail = email.toLowerCase().trim();
     if (!isIITDHEmail(cleanEmail)) {
-      return { success: false, error: 'Registration rejected: Only institutional email addresses ending in @iitdh.ac.in are permitted.' };
+      return {
+        success: false,
+        error: 'Registration rejected: Only institutional email addresses ending in @iitdh.ac.in are permitted.',
+      };
+    }
+
+    if (!fullName || fullName.trim().length < 2) {
+      return { success: false, error: 'Please enter your full name (at least 2 characters).' };
     }
 
     if (!password || password.length < 6) {
@@ -174,22 +264,72 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await dataStore.syncFromServer();
 
     try {
+      const res = await fetch('/api/portal/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password, fullName: fullName.trim() }),
+      });
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const body = await res.json();
+        if (!res.ok) {
+          return {
+            success: false,
+            error: body?.error || 'Failed to create account.',
+            code: body?.code,
+          };
+        }
+
+        // Optionally mirror signup to Supabase Auth without leaving a persistent session for non-super-admins
+        try {
+          await supabase.auth.signUp({
+            email: cleanEmail,
+            password,
+            options: { data: { full_name: fullName.trim() } },
+          });
+          if (body.role !== 'super_admin') {
+            await supabase.auth.signOut().catch(() => {});
+          }
+        } catch {}
+
+        const authUser: AuthenticatedUser = {
+          id: body.profile.id,
+          email: cleanEmail,
+          fullName: body.profile.full_name,
+          role: body.role,
+          assignedClubIds: body.assignedClubIds || [],
+        };
+        setUser(authUser);
+        applySessionStoragePolicy(authUser);
+        await dataStore.syncFromServer();
+        return { success: true };
+      }
+    } catch {}
+
+    // Fallback to Supabase Auth if Express API is unavailable
+    try {
       const { data, error } = await supabase.auth.signUp({
         email: cleanEmail,
         password,
         options: {
           data: {
-            full_name: fullName,
+            full_name: fullName.trim(),
           },
         },
       });
 
       if (error) {
-        console.warn('Supabase signup returned notice:', error.message);
-      } else if (data?.user) {
-        const resolvedName = fullName || cleanEmail.split('@')[0];
+        return { success: false, error: error.message };
+      }
+
+      if (data?.user) {
+        const resolvedName = fullName.trim() || cleanEmail.split('@')[0];
         await dataStore.registerProfile(cleanEmail, resolvedName);
         const { role, assignedClubIds } = resolveUserRole(cleanEmail);
+        if (role !== 'super_admin') {
+          await supabase.auth.signOut().catch(() => {});
+        }
         const authUser: AuthenticatedUser = {
           id: data.user.id,
           email: cleanEmail,
@@ -198,24 +338,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           assignedClubIds,
         };
         setUser(authUser);
-        localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(authUser));
+        applySessionStoragePolicy(authUser);
         return { success: true };
       }
     } catch {}
 
-    const resolvedName = fullName || cleanEmail.split('@')[0];
-    await dataStore.registerProfile(cleanEmail, resolvedName);
-    const { role, assignedClubIds } = resolveUserRole(cleanEmail);
-    const authUser: AuthenticatedUser = {
-      id: 'usr_' + cleanEmail.replace(/[^a-zA-Z0-9]/g, '_'),
-      email: cleanEmail,
-      fullName: resolvedName,
-      role,
-      assignedClubIds,
-    };
-    setUser(authUser);
-    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(authUser));
-    return { success: true };
+    return { success: false, error: 'Registration service unavailable. Please try again.' };
   };
 
   const logout = async () => {
@@ -226,40 +354,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem(LOCAL_USER_KEY);
   };
 
-  const switchTestAccount = (type: 'super_admin' | 'club_admin' | 'normal') => {
-    if (type === 'super_admin') {
-      const authUser: AuthenticatedUser = {
-        id: 'usr_ec26bt032',
-        email: SUPER_ADMIN_EMAIL,
-        fullName: 'Super Administrator',
-        role: 'super_admin',
-        assignedClubIds: dataStore.getClubs().map((c) => c.id),
-      };
-      setUser(authUser);
-      localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(authUser));
-    } else if (type === 'club_admin') {
-      const assigned = dataStore.getClubIdsForUser('coding_admin@iitdh.ac.in');
-      const codingClubId = 'c5555555-5555-4555-a555-555555555555';
-      const authUser: AuthenticatedUser = {
-        id: 'usr_coding_admin',
-        email: 'coding_admin@iitdh.ac.in',
-        fullName: 'Coding Club Lead',
-        role: 'club_admin',
-        assignedClubIds: assigned.length > 0 ? assigned : [codingClubId],
-      };
-      setUser(authUser);
-      localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(authUser));
-    } else {
-      const authUser: AuthenticatedUser = {
-        id: 'usr_student26',
-        email: 'student26@iitdh.ac.in',
-        fullName: 'Arjun Sharma',
-        role: 'normal',
-        assignedClubIds: [],
-      };
-      setUser(authUser);
-      localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(authUser));
-    }
+  const switchToSuperAdmin = () => {
+    const authUser: AuthenticatedUser = {
+      id: 'usr_ec26bt032',
+      email: SUPER_ADMIN_EMAIL,
+      fullName: 'Super Administrator',
+      role: 'super_admin',
+      assignedClubIds: dataStore.getClubs().map((c) => c.id),
+    };
+    setUser(authUser);
+    applySessionStoragePolicy(authUser);
   };
 
   const canAccessAdmin = user?.role === 'super_admin' || user?.role === 'club_admin';
@@ -274,7 +378,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         signup,
         logout,
-        switchTestAccount,
+        switchToSuperAdmin,
         canAccessAdmin,
         isSuperAdmin,
         isClubAdmin,

@@ -12,6 +12,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+      try {
+        if (localStorage.getItem('iitdh_portal_theme') === 'light') {
+          document.documentElement.classList.add('theme-light');
+          document.documentElement.dataset.theme = 'light';
+          document.documentElement.style.colorScheme = 'light';
+        }
+        if (localStorage.getItem('iitdh_portal_viewport') === 'phone') {
+          document.documentElement.classList.add('viewport-phone');
+          document.documentElement.dataset.viewport = 'phone';
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body class="bg-slate-950 text-slate-100 antialiased font-sans selection:bg-indigo-500 selection:text-white min-h-screen">
     <div id="root"></div>
