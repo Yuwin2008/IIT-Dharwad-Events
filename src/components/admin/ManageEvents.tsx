@@ -46,7 +46,8 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
   const [endTime, setEndTime] = useState('18:00:00');
   const [venue, setVenue] = useState('Makerspace Lab, Central Research Facility');
   const [regUrl, setRegUrl] = useState('');
-  const [regDeadline, setRegDeadline] = useState('');
+  const [regDeadlineDate, setRegDeadlineDate] = useState('');
+  const [regDeadlineTime, setRegDeadlineTime] = useState('23:59');
   const [posterUrl, setPosterUrl] = useState('/src/assets/images/robotics_club_showcase_1794484939484.jpg');
   const [status, setStatus] = useState<EventStatus>('Published');
 
@@ -72,7 +73,8 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
     setEndTime('18:00:00');
     setVenue('');
     setRegUrl('');
-    setRegDeadline('');
+    setRegDeadlineDate('');
+    setRegDeadlineTime('23:59');
     setPosterUrl('/src/assets/images/robotics_club_showcase_1794484939484.jpg');
     setStatus('Published');
     setErrorMessage('');
@@ -97,7 +99,24 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
     setEndTime(evt.end_time || '17:00:00');
     setVenue(evt.venue);
     setRegUrl(evt.registration_url || '');
-    setRegDeadline(evt.registration_deadline ? evt.registration_deadline.slice(0, 16) : '');
+    if (evt.registration_deadline) {
+      const parsed = new Date(evt.registration_deadline);
+      if (!isNaN(parsed.getTime())) {
+        const yyyy = parsed.getFullYear();
+        const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+        const dd = String(parsed.getDate()).padStart(2, '0');
+        const hh = String(parsed.getHours()).padStart(2, '0');
+        const min = String(parsed.getMinutes()).padStart(2, '0');
+        setRegDeadlineDate(`${yyyy}-${mm}-${dd}`);
+        setRegDeadlineTime(`${hh}:${min}`);
+      } else {
+        setRegDeadlineDate('');
+        setRegDeadlineTime('23:59');
+      }
+    } else {
+      setRegDeadlineDate('');
+      setRegDeadlineTime('23:59');
+    }
     setPosterUrl(evt.poster_url || '');
     setStatus(evt.status);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -121,6 +140,17 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
       return;
     }
 
+    let parsedDeadlineIso: string | undefined;
+    if (regDeadlineDate) {
+      const timePart = (regDeadlineTime || '23:59').slice(0, 5);
+      const deadlineObj = new Date(`${regDeadlineDate}T${timePart}:00`);
+      if (isNaN(deadlineObj.getTime())) {
+        setErrorMessage('Please enter a valid registration deadline date and time.');
+        return;
+      }
+      parsedDeadlineIso = deadlineObj.toISOString();
+    }
+
     try {
       const effectiveStatus = overrideStatus || status;
       const eventPayload = {
@@ -134,7 +164,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
         end_time: endTime,
         venue: venue.trim() || 'To be announced',
         registration_url: regUrl.trim() || undefined,
-        registration_deadline: regDeadline ? new Date(regDeadline).toISOString() : undefined,
+        registration_deadline: parsedDeadlineIso,
         poster_url: posterUrl.trim(),
         status: effectiveStatus,
         created_by: user?.id,
@@ -296,7 +326,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
                 required
                 value={eventDate}
                 onChange={(e) => setEventDate(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 [color-scheme:dark]"
               />
             </div>
 
@@ -323,7 +353,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 [color-scheme:dark]"
               />
             </div>
 
@@ -335,7 +365,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
                 type="time"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 [color-scheme:dark]"
               />
             </div>
 
@@ -356,14 +386,30 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
             {/* Registration Deadline */}
             <div>
               <label className="block font-medium text-slate-300 mb-1">
-                Registration Deadline
+                Registration Deadline (Optional)
               </label>
-              <input
-                type="datetime-local"
-                value={regDeadline}
-                onChange={(e) => setRegDeadline(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500"
-              />
+              <div className="grid grid-cols-5 gap-2">
+                <input
+                  type="date"
+                  value={regDeadlineDate}
+                  onChange={(e) => {
+                    setRegDeadlineDate(e.target.value);
+                    if (e.target.value && !regDeadlineTime) {
+                      setRegDeadlineTime('23:59');
+                    }
+                  }}
+                  aria-label="Registration Deadline Date"
+                  className="col-span-3 w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 [color-scheme:dark]"
+                />
+                <input
+                  type="time"
+                  value={regDeadlineDate ? regDeadlineTime : ''}
+                  disabled={!regDeadlineDate}
+                  onChange={(e) => setRegDeadlineTime(e.target.value || '23:59')}
+                  aria-label="Registration Deadline Time"
+                  className="col-span-2 w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-slate-100 focus:outline-none focus:border-indigo-500 disabled:opacity-40 [color-scheme:dark]"
+                />
+              </div>
             </div>
 
             {/* Poster URL */}
