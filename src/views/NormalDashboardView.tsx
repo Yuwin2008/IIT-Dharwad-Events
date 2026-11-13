@@ -366,7 +366,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                     onChange={(e) => setClubFilter(e.target.value)}
                     className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
                   >
-                    <option value="ALL">All Technical Clubs</option>
+                    <option value="ALL">All Clubs</option>
                     {clubs.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}

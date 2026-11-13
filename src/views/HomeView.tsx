@@ -201,7 +201,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
               {/* Category Segmented Buttons */}
               <div className="flex flex-wrap items-center gap-1.5">
-                {['ALL', 'Buildathon', 'Workshop', 'Seminar'].map((cat) => (
+                {['ALL', 'Buildathon', 'Hackathon', 'Workshop', 'Seminar', 'Cultural', 'Sports'].map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setSelectedCategoryFilter(cat)}
@@ -223,7 +223,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   onChange={(e) => setSelectedClubFilter(e.target.value)}
                   className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
                 >
-                  <option value="ALL">All Technical Clubs</option>
+                  <option value="ALL">All Clubs</option>
                   {clubs.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}

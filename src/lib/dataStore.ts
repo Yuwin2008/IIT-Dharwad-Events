@@ -51,6 +51,21 @@ const generateUuid = (): string => {
   });
 };
 
+async function extractApiRejection(res: Response): Promise<string | null> {
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    // Non-JSON 404/405 response (e.g., static preview hosting without Express API)
+    return null;
+  }
+  const body = await res.json().catch(() => null);
+  if (body && typeof body.error === 'string' && body.error.trim().length > 0) {
+    if (res.status === 400 || res.status === 403) {
+      return body.error;
+    }
+  }
+  return null;
+}
+
 class DataStore {
   private clubs: Club[] = [];
   private events: EventItem[] = [];
@@ -270,12 +285,10 @@ class DataStore {
         await this.syncFromServer();
         return created;
       }
-      if (res.status >= 400 && res.status < 500) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || 'Request rejected by server.');
-      }
+      const apiErr = await extractApiRejection(res);
+      if (apiErr) throw new Error(apiErr);
     } catch (err: any) {
-      if (err?.message && !err.message.includes('fetch')) throw err;
+      if (err?.message && !err.message.toLowerCase().includes('fetch')) throw err;
     }
 
     try {
@@ -310,12 +323,10 @@ class DataStore {
         await this.syncFromServer();
         return updated;
       }
-      if (res.status >= 400 && res.status < 500) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || 'Request rejected by server.');
-      }
+      const apiErr = await extractApiRejection(res);
+      if (apiErr) throw new Error(apiErr);
     } catch (err: any) {
-      if (err?.message && !err.message.includes('fetch')) throw err;
+      if (err?.message && !err.message.toLowerCase().includes('fetch')) throw err;
     }
 
     const updated = { ...this.clubs[index], ...updates };
@@ -344,12 +355,10 @@ class DataStore {
         await this.syncFromServer();
         return true;
       }
-      if (res.status >= 400 && res.status < 500) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || 'Request rejected by server.');
-      }
+      const apiErr = await extractApiRejection(res);
+      if (apiErr) throw new Error(apiErr);
     } catch (err: any) {
-      if (err?.message && !err.message.includes('fetch')) throw err;
+      if (err?.message && !err.message.toLowerCase().includes('fetch')) throw err;
     }
 
     try {
@@ -414,12 +423,10 @@ class DataStore {
         await this.syncFromServer();
         return { ...created, club: this.getClubById(created.club_id) };
       }
-      if (res.status >= 400 && res.status < 500) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || 'Request rejected by server.');
-      }
+      const apiErr = await extractApiRejection(res);
+      if (apiErr) throw new Error(apiErr);
     } catch (err: any) {
-      if (err?.message && !err.message.includes('fetch')) throw err;
+      if (err?.message && !err.message.toLowerCase().includes('fetch')) throw err;
     }
 
     try {
@@ -458,12 +465,10 @@ class DataStore {
         await this.syncFromServer();
         return { ...updated, club: this.getClubById(updated.club_id) };
       }
-      if (res.status >= 400 && res.status < 500) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || 'Request rejected by server.');
-      }
+      const apiErr = await extractApiRejection(res);
+      if (apiErr) throw new Error(apiErr);
     } catch (err: any) {
-      if (err?.message && !err.message.includes('fetch')) throw err;
+      if (err?.message && !err.message.toLowerCase().includes('fetch')) throw err;
     }
 
     const updated: EventItem = {
@@ -497,12 +502,10 @@ class DataStore {
         await this.syncFromServer();
         return true;
       }
-      if (res.status >= 400 && res.status < 500) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || 'Request rejected by server.');
-      }
+      const apiErr = await extractApiRejection(res);
+      if (apiErr) throw new Error(apiErr);
     } catch (err: any) {
-      if (err?.message && !err.message.includes('fetch')) throw err;
+      if (err?.message && !err.message.toLowerCase().includes('fetch')) throw err;
     }
 
     try {
@@ -555,12 +558,11 @@ class DataStore {
         const created = (await res.json()) as AnnouncementItem;
         await this.syncFromServer();
         return { ...created, club: created.club_id ? this.getClubById(created.club_id) : undefined };
-      } else if (res.status >= 400 && res.status < 500) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || 'Unauthorized to publish announcement.');
       }
+      const apiErr = await extractApiRejection(res);
+      if (apiErr) throw new Error(apiErr);
     } catch (err: any) {
-      if (err?.message && !err.message.includes('fetch')) {
+      if (err?.message && !err.message.toLowerCase().includes('fetch')) {
         throw err;
       }
     }
@@ -604,12 +606,11 @@ class DataStore {
         const updated = (await res.json()) as AnnouncementItem;
         await this.syncFromServer();
         return { ...updated, club: updated.club_id ? this.getClubById(updated.club_id) : undefined };
-      } else if (res.status >= 400 && res.status < 500) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || 'Unauthorized to update announcement.');
       }
+      const apiErr = await extractApiRejection(res);
+      if (apiErr) throw new Error(apiErr);
     } catch (err: any) {
-      if (err?.message && !err.message.includes('fetch')) throw err;
+      if (err?.message && !err.message.toLowerCase().includes('fetch')) throw err;
     }
 
     const updated: AnnouncementItem = {
@@ -646,12 +647,11 @@ class DataStore {
       if (res.ok) {
         await this.syncFromServer();
         return true;
-      } else if (res.status >= 400 && res.status < 500) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || 'Unauthorized to delete announcement.');
       }
+      const apiErr = await extractApiRejection(res);
+      if (apiErr) throw new Error(apiErr);
     } catch (err: any) {
-      if (err?.message && !err.message.includes('fetch')) throw err;
+      if (err?.message && !err.message.toLowerCase().includes('fetch')) throw err;
     }
 
     try {
@@ -699,12 +699,11 @@ class DataStore {
         const created = (await res.json()) as ClubAdminAssignment;
         await this.syncFromServer();
         return created;
-      } else if (res.status >= 400 && res.status < 500) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || 'Request rejected by server.');
       }
+      const apiErr = await extractApiRejection(res);
+      if (apiErr) throw new Error(apiErr);
     } catch (err: any) {
-      if (err?.message && !err.message.includes('fetch')) throw err;
+      if (err?.message && !err.message.toLowerCase().includes('fetch')) throw err;
     }
 
     const existing = this.clubAdmins.find(
@@ -748,12 +747,11 @@ class DataStore {
       if (res.ok) {
         await this.syncFromServer();
         return true;
-      } else if (res.status >= 400 && res.status < 500) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || 'Request rejected by server.');
       }
+      const apiErr = await extractApiRejection(res);
+      if (apiErr) throw new Error(apiErr);
     } catch (err: any) {
-      if (err?.message && !err.message.includes('fetch')) throw err;
+      if (err?.message && !err.message.toLowerCase().includes('fetch')) throw err;
     }
 
     try {

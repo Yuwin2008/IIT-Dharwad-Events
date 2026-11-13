@@ -30,6 +30,7 @@ export const ManageClubAdmins: React.FC = () => {
 
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [pendingRevokeId, setPendingRevokeId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedClubId && clubs.length > 0) {
@@ -91,21 +92,18 @@ export const ManageClubAdmins: React.FC = () => {
 
   const handleRemove = async (assignment: ClubAdminAssignment) => {
     if (!isSuperAdmin) {
-      alert('Security Violation: Only Super Admin can revoke administrative privileges.');
+      setErrorMessage('Security Violation: Only Super Admin can revoke administrative privileges.');
+      setPendingRevokeId(null);
       return;
     }
 
-    const confirmed = window.confirm(
-      `Confirm Revocation:\nAre you sure you want to remove ${assignment.user_email} as administrator for ${assignment.club_name}?\n\nIf the user has no remaining club assignments, they will immediately revert to a Normal Student account.`
-    );
-
-    if (confirmed) {
-      try {
-        await dataStore.removeClubAdmin(assignment.id, user?.email || 'super_admin');
-        setSuccessMessage(`Revoked ${assignment.club_name} administrative privileges from ${assignment.user_email}.`);
-      } catch (err: any) {
-        setErrorMessage(err.message || 'Failed to remove administrator.');
-      }
+    try {
+      await dataStore.removeClubAdmin(assignment.id, user?.email || 'super_admin');
+      setPendingRevokeId(null);
+      setSuccessMessage(`Revoked ${assignment.club_name} administrative privileges from ${assignment.user_email}.`);
+    } catch (err: any) {
+      setPendingRevokeId(null);
+      setErrorMessage(err.message || 'Failed to remove administrator.');
     }
   };
 
@@ -294,14 +292,31 @@ export const ManageClubAdmins: React.FC = () => {
                       {new Date(assignment.created_at).toLocaleDateString()}
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => handleRemove(assignment)}
-                        className="px-2.5 py-1 text-xs text-rose-300 hover:text-white bg-rose-950/40 hover:bg-rose-900 border border-rose-800/60 rounded transition-colors inline-flex items-center gap-1"
-                        title="Revoke club admin permissions"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        <span>Revoke</span>
-                      </button>
+                      {pendingRevokeId === assignment.id ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleRemove(assignment)}
+                            className="px-2.5 py-1 text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded transition-colors"
+                          >
+                            Confirm Revoke
+                          </button>
+                          <button
+                            onClick={() => setPendingRevokeId(null)}
+                            className="px-2 py-1 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setPendingRevokeId(assignment.id)}
+                          className="px-2.5 py-1 text-xs text-rose-300 hover:text-white bg-rose-950/40 hover:bg-rose-900 border border-rose-800/60 rounded transition-colors inline-flex items-center gap-1"
+                          title="Revoke club admin permissions"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Revoke</span>
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

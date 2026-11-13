@@ -31,6 +31,7 @@ export const ManageClubs: React.FC = () => {
 
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const resetForm = () => {
     setIsEditing(false);
@@ -45,7 +46,7 @@ export const ManageClubs: React.FC = () => {
 
   const handleStartEdit = (club: Club) => {
     if (!isSuperAdmin) {
-      alert('Access Restricted: Only Super Admin can modify club configuration.');
+      setErrorMessage('Access Restricted: Only Super Admin can modify club configuration.');
       return;
     }
     setEditingId(club.id);
@@ -99,17 +100,18 @@ export const ManageClubs: React.FC = () => {
 
   const handleDelete = async (id: string, clubName: string) => {
     if (!isSuperAdmin) {
-      alert('Only Super Admin can delete clubs.');
+      setErrorMessage('Only Super Admin can delete clubs.');
+      setPendingDeleteId(null);
       return;
     }
 
-    if (window.confirm(`Are you sure you want to permanently delete "${clubName}"? This will delete all related club events and announcements.`)) {
-      try {
-        await dataStore.deleteClub(id, user?.email || 'admin');
-        setSuccessMessage(`Club "${clubName}" deleted.`);
-      } catch (err: any) {
-        setErrorMessage(err.message || 'Failed to delete club.');
-      }
+    try {
+      await dataStore.deleteClub(id, user?.email || 'admin');
+      setPendingDeleteId(null);
+      setSuccessMessage(`Club "${clubName}" deleted.`);
+    } catch (err: any) {
+      setPendingDeleteId(null);
+      setErrorMessage(err.message || 'Failed to delete club.');
     }
   };
 
@@ -321,13 +323,30 @@ export const ManageClubs: React.FC = () => {
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => handleDelete(c.id, c.name)}
-                        className="p-1 text-rose-400 hover:text-rose-300 transition-colors"
-                        title="Delete club"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {pendingDeleteId === c.id ? (
+                        <span className="inline-flex items-center gap-1 ml-1">
+                          <button
+                            onClick={() => handleDelete(c.id, c.name)}
+                            className="px-2 py-0.5 text-[11px] font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded transition-colors"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => setPendingDeleteId(null)}
+                            className="px-2 py-0.5 text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setPendingDeleteId(c.id)}
+                          className="p-1 text-rose-400 hover:text-rose-300 transition-colors"
+                          title="Delete club"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>

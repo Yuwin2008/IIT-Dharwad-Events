@@ -53,6 +53,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
 
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!clubId && allowedClubs.length > 0) {
@@ -83,7 +84,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
   const handleStartEdit = (evt: EventItem) => {
     // Verify permissions: Club Admin cannot edit other clubs!
     if (!isSuperAdmin && !assignedClubs.includes(evt.club_id)) {
-      alert('Permission Denied: You can only edit events belonging to your assigned clubs.');
+      setErrorMessage('Permission Denied: You can only edit events belonging to your assigned clubs.');
       return;
     }
 
@@ -186,17 +187,18 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
 
   const handleDelete = async (id: string, eventTitle: string, eventClubId: string) => {
     if (!isSuperAdmin && !assignedClubs.includes(eventClubId)) {
-      alert('Permission Denied: You can only delete events for your assigned clubs.');
+      setErrorMessage('Permission Denied: You can only delete events for your assigned clubs.');
+      setPendingDeleteId(null);
       return;
     }
 
-    if (window.confirm(`Are you sure you want to delete the event "${eventTitle}"? This action is permanent.`)) {
-      try {
-        await dataStore.deleteEvent(id, user?.email || 'admin');
-        setSuccessMessage(`Event "${eventTitle}" was deleted.`);
-      } catch (err: any) {
-        setErrorMessage(err.message || 'Failed to delete event.');
-      }
+    try {
+      await dataStore.deleteEvent(id, user?.email || 'admin');
+      setPendingDeleteId(null);
+      setSuccessMessage(`Event "${eventTitle}" was deleted.`);
+    } catch (err: any) {
+      setPendingDeleteId(null);
+      setErrorMessage(err.message || 'Failed to delete event.');
     }
   };
 
@@ -578,13 +580,30 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
                             >
                               <Pencil className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => handleDelete(evt.id, evt.title, evt.club_id)}
-                              className="p-1 text-rose-400 hover:text-rose-300 transition-colors"
-                              title="Delete event"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {pendingDeleteId === evt.id ? (
+                              <span className="inline-flex items-center gap-1 ml-1">
+                                <button
+                                  onClick={() => handleDelete(evt.id, evt.title, evt.club_id)}
+                                  className="px-2 py-0.5 text-[11px] font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded transition-colors"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  onClick={() => setPendingDeleteId(null)}
+                                  className="px-2 py-0.5 text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => setPendingDeleteId(evt.id)}
+                                className="p-1 text-rose-400 hover:text-rose-300 transition-colors"
+                                title="Delete event"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </>
                         ) : (
                           <span className="text-[10px] text-slate-400 italic">Read-only</span>

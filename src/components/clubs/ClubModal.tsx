@@ -23,7 +23,10 @@ export const ClubModal: React.FC<ClubModalProps> = ({
   const clubAnnouncements = announcements.filter((a) => a.club_id === club.id);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+    >
       <div 
         className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto shadow-2xl relative"
         onClick={(e) => e.stopPropagation()}
@@ -140,7 +143,7 @@ export const ClubModal: React.FC<ClubModalProps> = ({
                   >
                     <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
                       <span className="font-semibold text-slate-200">{ann.title}</span>
-                      <span>{new Date(ann.published_at).toLocaleDateString()}</span>
+                      <span>{new Date(ann.published_at || ann.created_at).toLocaleDateString()}</span>
                     </div>
                     <p className="text-xs text-slate-300 leading-relaxed">
                       {ann.content}

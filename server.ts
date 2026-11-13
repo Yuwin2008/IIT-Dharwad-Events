@@ -143,7 +143,14 @@ function appendActivityLog(
 
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '10mb' }));
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err instanceof SyntaxError && req.path.startsWith('/api')) {
+      res.status(400).json({ error: 'Invalid JSON request payload.' });
+      return;
+    }
+    next(err);
+  });
 
   // Health check
   app.get('/api/health', (_req, res) => {
@@ -505,6 +512,11 @@ async function startServer() {
       saveDatabase(db);
     }
     res.json({ ok: true });
+  });
+
+  // Return JSON 404 for any unmatched /api/* route instead of HTML
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'API endpoint not found.' });
   });
 
   // Vite Dev Middleware or Production Static Serving

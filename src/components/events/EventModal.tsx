@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, Calendar, Clock, MapPin, Mail, ExternalLink, AlertCircle, Share2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Calendar, Clock, MapPin, Mail, ExternalLink, AlertCircle, Share2, Check } from 'lucide-react';
 import { EventItem } from '../../types';
 
 interface EventModalProps {
@@ -8,6 +8,8 @@ interface EventModalProps {
 }
 
 export const EventModal: React.FC<EventModalProps> = ({ event, onClose }) => {
+  const [copied, setCopied] = useState(false);
+
   if (!event) return null;
 
   const isRegistrationClosed = (() => {
@@ -26,12 +28,16 @@ export const EventModal: React.FC<EventModalProps> = ({ event, onClose }) => {
   };
 
   const handleCopyShare = () => {
-    navigator.clipboard.writeText(window.location.origin + '?event=' + event.id);
-    alert('Event link copied to clipboard!');
+    navigator.clipboard?.writeText(window.location.origin + '?event=' + event.id).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+    >
       <div 
         className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl relative"
         onClick={(e) => e.stopPropagation()}
@@ -167,8 +173,8 @@ export const EventModal: React.FC<EventModalProps> = ({ event, onClose }) => {
               onClick={handleCopyShare}
               className="px-3.5 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors flex items-center gap-1.5"
             >
-              <Share2 className="w-3.5 h-3.5" />
-              <span>Share Event</span>
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Share2 className="w-3.5 h-3.5" />}
+              <span>{copied ? 'Link Copied!' : 'Share Event'}</span>
             </button>
 
             <div className="flex items-center gap-3">

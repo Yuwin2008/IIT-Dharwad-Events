@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/authContext';
 import { SUPER_ADMIN_EMAIL } from '../../lib/supabase';
 import { X, Lock, Mail, User, ShieldAlert, CheckCircle2, ArrowRight } from 'lucide-react';
@@ -25,6 +25,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { login, signup } = useAuth();
+
+  useEffect(() => {
+    if (isOpen) {
+      setMode(initialMode);
+      setErrorMessage('');
+      setSuccessMessage('');
+      setIsSubmitting(false);
+    }
+  }, [isOpen, initialMode]);
 
   if (!isOpen) return null;
 
@@ -93,7 +102,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+    >
       <div 
         className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full shadow-2xl overflow-hidden relative"
         onClick={(e) => e.stopPropagation()}

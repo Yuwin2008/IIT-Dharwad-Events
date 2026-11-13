@@ -41,6 +41,7 @@ export const ManageAnnouncements: React.FC = () => {
 
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!clubId && allowedClubs.length > 0) {
@@ -63,11 +64,11 @@ export const ManageAnnouncements: React.FC = () => {
 
   const handleStartEdit = (ann: AnnouncementItem) => {
     if (!isSuperAdmin && ann.club_id && !assignedClubs.includes(ann.club_id)) {
-      alert('Permission Denied: You can only edit announcements for your assigned clubs.');
+      setErrorMessage('Permission Denied: You can only edit announcements for your assigned clubs.');
       return;
     }
     if (!isSuperAdmin && !ann.club_id) {
-      alert('Permission Denied: Only Super Admin can modify campus-wide announcements.');
+      setErrorMessage('Permission Denied: Only Super Admin can modify campus-wide announcements.');
       return;
     }
 
@@ -142,21 +143,23 @@ export const ManageAnnouncements: React.FC = () => {
 
   const handleDelete = async (id: string, annTitle: string, annClubId?: string | null) => {
     if (!isSuperAdmin && annClubId && !assignedClubs.includes(annClubId)) {
-      alert('Permission Denied: You cannot delete this announcement.');
+      setErrorMessage('Permission Denied: You cannot delete this announcement.');
+      setPendingDeleteId(null);
       return;
     }
     if (!isSuperAdmin && !annClubId) {
-      alert('Permission Denied: Only Super Admin can delete campus-wide announcements.');
+      setErrorMessage('Permission Denied: Only Super Admin can delete campus-wide announcements.');
+      setPendingDeleteId(null);
       return;
     }
 
-    if (window.confirm(`Are you sure you want to delete the announcement "${annTitle}"?`)) {
-      try {
-        await dataStore.deleteAnnouncement(id, user?.email || 'admin');
-        setSuccessMessage(`Announcement deleted.`);
-      } catch (err: any) {
-        setErrorMessage(err.message || 'Failed to delete announcement.');
-      }
+    try {
+      await dataStore.deleteAnnouncement(id, user?.email || 'admin');
+      setPendingDeleteId(null);
+      setSuccessMessage(`Announcement "${annTitle}" deleted.`);
+    } catch (err: any) {
+      setPendingDeleteId(null);
+      setErrorMessage(err.message || 'Failed to delete announcement.');
     }
   };
 
@@ -403,13 +406,30 @@ export const ManageAnnouncements: React.FC = () => {
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => handleDelete(ann.id, ann.title, ann.club_id)}
-                          className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-slate-800 rounded transition-colors"
-                          title="Delete announcement"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {pendingDeleteId === ann.id ? (
+                          <span className="inline-flex items-center gap-1 ml-1">
+                            <button
+                              onClick={() => handleDelete(ann.id, ann.title, ann.club_id)}
+                              className="px-2 py-0.5 text-[11px] font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded transition-colors"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={() => setPendingDeleteId(null)}
+                              className="px-2 py-0.5 text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setPendingDeleteId(ann.id)}
+                            className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-slate-800 rounded transition-colors"
+                            title="Delete announcement"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </>
                     ) : (
                       <span className="text-[10px] text-slate-400 italic">Read-only</span>

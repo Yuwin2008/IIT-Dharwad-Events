@@ -32,7 +32,7 @@ function AppContent() {
   const [selectedClub, setSelectedClub] = useState<Club | null>(null);
   const [sqlModalOpen, setSqlModalOpen] = useState(false);
 
-  // Sync browser URL history
+  // Sync browser URL history and shared ?event= query link
   useEffect(() => {
     const handlePopState = () => {
       setCurrentRoute(window.location.pathname || '/');
@@ -40,6 +40,17 @@ function AppContent() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sharedEventId = params.get('event');
+    if (sharedEventId && !selectedEvent) {
+      const evt = dataStore.getEventById(sharedEventId);
+      if (evt) {
+        setSelectedEvent(evt);
+      }
+    }
+  }, [selectedEvent]);
 
   const navigateTo = (route: string) => {
     setCurrentRoute(route);
