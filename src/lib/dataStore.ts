@@ -1,431 +1,30 @@
+import { useEffect, useState } from 'react';
 import { supabase, SUPER_ADMIN_EMAIL } from './supabase';
-import { 
-  Club, 
-  EventItem, 
-  AnnouncementItem, 
-  ClubAdminAssignment, 
-  ActivityLogItem 
+import {
+  INITIAL_CLUBS,
+  INITIAL_EVENTS,
+  INITIAL_ANNOUNCEMENTS,
+  INITIAL_CLUB_ADMINS,
+  INITIAL_ACTIVITY_LOGS,
+  INITIAL_PROFILES,
+} from './seedData';
+import {
+  Club,
+  EventItem,
+  AnnouncementItem,
+  ClubAdminAssignment,
+  ActivityLogItem,
+  Profile,
 } from '../types';
 
-// Default initial seeded Technical Clubs
-export const INITIAL_CLUBS: Club[] = [
-  // --- TECHNICAL CLUBS ---
-  {
-    id: 'c1111111-1111-4111-a111-111111111111',
-    name: 'Electronics Club',
-    domain: 'Technical',
-    description: 'Fostering embedded systems, IoT prototyping, VLSI circuit design, PCB fabrication, and high-speed hardware innovation across IIT Dharwad.',
-    email: 'electronicsclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'c2222222-2222-4222-a222-222222222222',
-    name: 'InGene Motorsport',
-    domain: 'Technical',
-    description: 'IIT Dharwad’s premier student Formula racing engineering team designing, fabricating, and racing high-performance electric vehicles in Formula Student competitions.',
-    email: 'ingene@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'c3333333-3333-4333-a333-333333333333',
-    name: 'Robotics Club',
-    domain: 'Technical',
-    description: 'Pioneering autonomous mobile robotics, ROS2 automation architectures, computer vision navigation, robotic arms, and collegiate drone systems.',
-    email: 'robotics@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'c4444444-4444-4444-a444-444444444444',
-    name: 'Abhikalpa Design Club',
-    domain: 'Technical',
-    description: 'Uniting industrial product design, human-computer interaction, UI/UX aesthetics, 3D parametric modeling, and creative technology prototyping.',
-    email: 'abhikalpa.dc@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'c5555555-5555-4555-a555-555555555555',
-    name: 'Coding Club',
-    domain: 'Technical',
-    description: 'Empowering developers, competitive programmers, open-source contributors, and software architects through hackathons, algorithms, and buildathons.',
-    email: 'codingclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'c6666666-6666-4666-a666-666666666666',
-    name: 'AI Club',
-    domain: 'Technical',
-    description: 'Advancing research in deep learning, LLMs, computer vision, reinforcement learning, and production machine learning architectures at IIT Dharwad.',
-    email: 'aiclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1677442136019-21780efad99a?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'c7777777-7777-4777-a777-777777777777',
-    name: 'Finance Club',
-    domain: 'Technical',
-    description: 'Bridging algorithmic quantitative trading, macroeconomic analysis, mathematical financial engineering, equity research, and fintech.',
-    email: 'finance.club@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'c8888888-8888-4888-a888-888888888888',
-    name: 'Space Data Science Club',
-    domain: 'Technical',
-    description: 'Processing astronomical observations, satellite telemetry, deep space imagery, orbital trajectory algorithms, and computational astrophysics.',
-    email: 'space.ds.club@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-
-  // --- CULTURAL CLUBS ---
-  {
-    id: 'cul-1111-4111-a111-111111111111',
-    name: 'Prabodhini Club',
-    domain: 'Cultural',
-    description: 'Fostering cultural heritage, traditional arts, awareness, Indian languages, and spiritual philosophy at IIT Dharwad.',
-    email: 'prabodhini.club@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1461360370896-922624d12aa1?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'cul-2222-4222-a222-222222222222',
-    name: 'UDGHOSH IITDh',
-    domain: 'Cultural',
-    description: 'The official dramatics and theatre society of IIT Dharwad, organizing stage plays, street plays (Nukkad Natak), and theatrical productions.',
-    email: 'dramatics@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'cul-3333-4333-a333-333333333333',
-    name: 'Fine Arts Club',
-    domain: 'Cultural',
-    description: 'Cultivating sketching, painting, digital illustration, origami, calligraphy, sculpture, and visual fine arts exhibitions across the institute.',
-    email: 'finearts@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'cul-4444-4444-a444-444444444444',
-    name: 'The Sapphire Dance Club',
-    domain: 'Cultural',
-    description: 'IIT Dharwad premier dance collective exploring classical, contemporary, hip-hop, western, and fusion choreography for inter-college competitions.',
-    email: 'sapphire.danceclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'cul-5555-4555-a555-555555555555',
-    name: 'Music Club',
-    domain: 'Cultural',
-    description: 'Uniting instrumentalists, vocalists, acoustic ensembles, and bands across classical, rock, jazz, and indie musical genres.',
-    email: 'musicclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'cul-6666-4666-a666-666666666666',
-    name: 'Quiz Club',
-    domain: 'Cultural',
-    description: 'Promoting trivia, general knowledge, pop culture, sci-tech quizzing, and representing IIT Dharwad in national inter-collegiate quiz circuits.',
-    email: 'quizclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1606326608606-aa0b62935f2b?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'cul-7777-4777-a777-777777777777',
-    name: '| EUNOIA |',
-    domain: 'Cultural',
-    description: 'The official literary and debating society of IIT Dharwad, organizing parliamentary debates, creative writing, poetry slams, and Model United Nations.',
-    email: 'literaryclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1455390582262-044cdead277a?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'cul-8888-4888-a888-888888888888',
-    name: 'Photography and Films Club',
-    domain: 'Cultural',
-    description: 'Capturing campus life, cinematic filmmaking, documentary storytelling, cinematography, editing, visual post-production, and photo exhibitions.',
-    email: 'paf@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-
-  // --- SPORTS CLUBS ---
-  {
-    id: 'spt-1111-4111-a111-111111111111',
-    name: 'Football Club',
-    domain: 'Sports',
-    description: 'Competitive collegiate football team training, tactic sessions, inter-departmental tournaments, and Inter-IIT Sports Meet training.',
-    email: 'footballclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'spt-2222-4222-a222-222222222222',
-    name: 'Badminton Club',
-    domain: 'Sports',
-    description: 'High-intensity indoor badminton coaching, singles and doubles tournaments, and varsity trials at the campus sports complex.',
-    email: 'badmintonclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'spt-3333-4333-a333-333333333333',
-    name: 'Table-Tennis Club',
-    domain: 'Sports',
-    description: 'Fast-paced table tennis coaching, spin techniques, intra-hostel leagues, and competitive Inter-IIT team preparation.',
-    email: 'tabletennisclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1534158914592-062992fbe900?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'spt-4444-4444-a444-444444444444',
-    name: 'Tennis Club',
-    domain: 'Sports',
-    description: 'Synthetic hard-court tennis training, baseline strategy, serve mechanics, and collegiate tournaments.',
-    email: 'tennisclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1595435934249-5df7ed86e1c0?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'spt-5555-4555-a555-555555555555',
-    name: 'Cricket Club',
-    domain: 'Sports',
-    description: 'IIT Dharwad cricket team organizing the institute premier league, net practice sessions, and representing the institute in regional tournaments.',
-    email: 'cricketclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1531415074968-036ba1b575da?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'spt-6666-4666-a666-666666666666',
-    name: 'Volleyball Club',
-    domain: 'Sports',
-    description: 'Spiking, setting, and defensive coordination on outdoor courts, organizing institute volleyball championships and Inter-IIT training.',
-    email: 'volleyballclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'spt-7777-4777-a777-777777777777',
-    name: 'Chess Club',
-    domain: 'Sports',
-    description: 'Classical, rapid, and blitz chess tournaments, grandmaster game analysis, tactical puzzle solving, and FIDE rated event prep.',
-    email: 'chessclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1529699211952-734e80c4d42b?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'spt-8888-4888-a888-888888888888',
-    name: 'Hockey Club',
-    domain: 'Sports',
-    description: 'Field hockey training, stick handling drills, penalty corner tactics, and Inter-IIT hockey contingent development.',
-    email: 'hockeyclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1580748141549-71748dbe0bdc?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'spt-9999-4999-a999-999999999999',
-    name: 'Athletics Club',
-    domain: 'Sports',
-    description: 'Track and field disciplines including sprints, middle-distance running, relays, long jump, shot put, and annual athletic meets.',
-    email: 'athleticsclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'spt-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
-    name: 'Basketball Club',
-    domain: 'Sports',
-    description: 'Fast-break drills, zone defense, shooting clinics, and 3v3 and 5v5 tournaments on the campus basketball courts.',
-    email: 'basketballclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-  {
-    id: 'spt-bbbb-4bbb-bbbb-bbbbbbbbbbbb',
-    name: 'Squash Club',
-    domain: 'Sports',
-    description: 'Indoor squash racquet skills, endurance training, wall drills, and competitive squash matches at the sports pavilion.',
-    email: 'squashclub@iitdh.ac.in',
-    logo_url: 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=200&h=200&fit=crop',
-    created_at: '2026-10-01T00:00:00Z',
-  },
-];
-
-// Seeded Events with Featured VIBE-A-THON
-export const INITIAL_EVENTS: EventItem[] = [
-  {
-    id: 'e1111111-1111-4111-b111-111111111111',
-    club_id: 'c5555555-5555-4555-a555-555555555555', // Coding Club
-    title: 'VIBE-A-THON',
-    category: 'Technical / Buildathon',
-    short_description: 'An AI-powered, beginner-friendly buildathon. Bring an idea, use AI tools, and turn it into a working project. No prior coding experience is required.',
-    description: `VIBE-A-THON is IIT Dharwad’s flagship AI-powered, beginner-friendly buildathon organized by Coding Club!
-
-Whether you are a seasoned coder or haven't written a single line of code in your life, this event is designed for YOU. Bring an idea, leverage modern AI developer tools (Gemini, Claude, Cursor, v0, Bolt, Lovable), and turn creative concepts into functioning digital products, hardware demos, or automation tools.
-
-KEY DETAILS & TIMELINE:
-• Registration Closed: 9 November 2026.
-• Project Submission Deadline: 14 November 2026 (Submit code repositories, deployment URLs, and demo videos).
-• Presentation & Pitch Showcase: To be announced by the organizing committee.
-• Venue: To be announced.
-
-ELIGIBILITY & PARTICIPATION RULES:
-1. Open exclusively to all registered students of IIT Dharwad.
-2. Teams may consist of 1 to 4 members from any department or academic year.
-3. Use of AI code-assistants, LLMs, and no-code/low-code platforms is explicitly encouraged!
-4. Originality: Solutions must address a real campus, scientific, or social problem.
-5. All teams will receive official participation certificates, and top teams will win cash prizes and direct mentorship opportunities from tech mentors.`,
-    event_date: '2026-11-14',
-    start_time: '09:00:00',
-    end_time: '23:59:00',
-    venue: 'To be announced',
-    registration_url: 'https://docs.google.com/forms/d/e/1FAIpQLSdyds4FyQ88ppd4qp5T6JEuNcB0TY5pgL7tzz7fA9vfTyFgEg/viewform?usp=dialog',
-    registration_deadline: '2026-11-09T23:59:59Z', // Past deadline
-    poster_url: '/src/assets/images/vibeathon_banner_1794484938286.jpg',
-    status: 'Published',
-    created_at: '2026-11-01T10:00:00Z',
-  },
-  {
-    id: 'e2222222-2222-4222-b222-222222222222',
-    club_id: 'c3333333-3333-4333-a333-333333333333', // Robotics Club
-    title: 'Autonomous Mobile Robotics Bootcamp',
-    category: 'Technical / Workshop',
-    short_description: 'Hands-on practical intensive on ROS2 navigation stack, 2D LiDAR SLAM, and embedded motor controller firmware.',
-    description: `Join the Robotics Club for an immersive 2-day practical bootcamp on building ROS2 navigation stacks and micro-ROS sensor integration. Bring your laptops with Ubuntu 22.04 or WSL2 installed. Hardware kits with TurtleBot-compatible chassis, LiDAR sensors, and ESP32 microcontrollers will be provided.`,
-    event_date: '2026-11-20',
-    start_time: '14:00:00',
-    end_time: '18:00:00',
-    venue: 'Central Research Facility, Robotics Innovation Lab',
-    registration_url: 'https://docs.google.com/forms/d/e/example-robotics-iitdh/viewform',
-    registration_deadline: '2026-11-19T18:00:00Z',
-    poster_url: '/src/assets/images/robotics_club_showcase_1794484939484.jpg',
-    status: 'Published',
-    created_at: '2026-11-05T12:00:00Z',
-  },
-  {
-    id: 'e3333333-3333-4333-b333-333333333333',
-    club_id: 'c2222222-2222-4222-a222-222222222222', // InGene Motorsport
-    title: 'Formula Student Aerodynamics & Telemetry Symposium',
-    category: 'Technical / Seminar',
-    short_description: 'Deep-dive into CFD aerodynamic simulation, downforce packaging, and high-speed CAN bus vehicle telemetry.',
-    description: `InGene Motorsport presents an exhaustive technical breakdown of EV aerodynamics and live telemetry data pipelines from Formula Bharat. Learn how the team simulates wing profiles in OpenFOAM and captures 100Hz IMU data on track.`,
-    event_date: '2026-11-26',
-    start_time: '16:30:00',
-    end_time: '19:00:00',
-    venue: 'Auditorium 2, Main Academic Block',
-    registration_url: 'https://docs.google.com/forms/d/e/example-motorsport-iitdh/viewform',
-    registration_deadline: '2026-11-25T23:59:00Z',
-    poster_url: '/src/assets/images/motorsport_showcase_1794484938913.jpg',
-    status: 'Published',
-    created_at: '2026-11-06T15:00:00Z',
-  },
-];
-
-// Seeded Announcements
-export const INITIAL_ANNOUNCEMENTS: AnnouncementItem[] = [
-  {
-    id: 'a1111111-1111-4111-c111-111111111111',
-    club_id: 'c5555555-5555-4555-a555-555555555555', // Coding Club
-    title: 'VIBE-A-THON Registration Status & Final Submission Guidelines',
-    content: 'Registrations for VIBE-A-THON closed on 9 November 2026. All confirmed registered teams must submit their final project GitHub repositories, live deployment links, and 3-minute video pitch demonstrations before 14 November 2026 at 23:59 IST via the official submission portal. Presentation date and judging venue will be announced shortly.',
-    type: 'Club Announcement',
-    external_url: 'https://docs.google.com/forms/d/e/1FAIpQLSdyds4FyQ88ppd4qp5T6JEuNcB0TY5pgL7tzz7fA9vfTyFgEg/viewform?usp=dialog',
-    attachment_url: '',
-    status: 'Published',
-    published_at: '2026-11-10T10:00:00Z',
-    created_at: '2026-11-10T10:00:00Z',
-  },
-  {
-    id: 'a2222222-2222-4222-c222-222222222222',
-    club_id: null, // Campus-wide
-    title: 'Official Launch of IIT Dharwad Campus Events Portal',
-    content: 'Welcome to the unified IIT Dharwad Campus Events & Technical Clubs Portal. Students can now browse all institute technical clubs, track upcoming competitions and workshops, access official registrations, and receive verified administrative announcements from faculty advisors and student coordinators.',
-    type: 'Campus-wide Announcement',
-    external_url: 'https://iitdh.ac.in',
-    status: 'Published',
-    published_at: '2026-11-08T08:00:00Z',
-    created_at: '2026-11-08T08:00:00Z',
-  },
-  {
-    id: 'a3333333-3333-4333-c333-333333333333',
-    club_id: 'c6666666-6666-4666-a666-666666666666', // AI Club
-    title: 'AI Club Research Circle: Reasoning Foundation Models',
-    content: 'The AI Club is convening a research discussion on test-time compute scaling laws and reasoning mechanisms in modern LLMs. Open to all students interested in deep learning and NLP architectures.',
-    type: 'Club Announcement',
-    external_url: 'https://iitdh.ac.in/aiclub',
-    status: 'Published',
-    published_at: '2026-11-11T14:00:00Z',
-    created_at: '2026-11-11T14:00:00Z',
-  },
-];
-
-// Initial Seeded Club Admin Assignments
-export const INITIAL_CLUB_ADMINS: ClubAdminAssignment[] = [
-  {
-    id: 'cadm-1',
-    user_id: 'user-coding-admin',
-    user_email: 'coding_admin@iitdh.ac.in',
-    club_id: 'c5555555-5555-4555-a555-555555555555', // Coding Club
-    club_name: 'Coding Club',
-    assigned_by: 'ec26bt032@iitdh.ac.in',
-    created_at: '2026-11-02T10:00:00Z',
-  },
-  {
-    id: 'cadm-2',
-    user_id: 'user-robotics-admin',
-    user_email: 'robotics_lead@iitdh.ac.in',
-    club_id: 'c3333333-3333-4333-a333-333333333333', // Robotics Club
-    club_name: 'Robotics Club',
-    assigned_by: 'ec26bt032@iitdh.ac.in',
-    created_at: '2026-11-03T11:00:00Z',
-  },
-];
-
-// Initial Seeded Activity Logs
-export const INITIAL_ACTIVITY_LOGS: ActivityLogItem[] = [
-  {
-    id: 'log-1',
-    actor_id: 'ec26bt032@iitdh.ac.in',
-    actor_email: 'ec26bt032@iitdh.ac.in',
-    action: 'Initialized 8 Technical Clubs Directory',
-    target_type: 'club',
-    created_at: '2026-11-01T09:00:00Z',
-  },
-  {
-    id: 'log-2',
-    actor_id: 'ec26bt032@iitdh.ac.in',
-    actor_email: 'ec26bt032@iitdh.ac.in',
-    action: 'Assigned coding_admin@iitdh.ac.in to Coding Club',
-    target_type: 'admin',
-    created_at: '2026-11-02T10:00:00Z',
-  },
-  {
-    id: 'log-3',
-    actor_id: 'coding_admin@iitdh.ac.in',
-    actor_email: 'coding_admin@iitdh.ac.in',
-    action: 'Published VIBE-A-THON Event Announcement',
-    target_type: 'event',
-    target_id: 'e1111111-1111-4111-b111-111111111111',
-    created_at: '2026-11-02T10:30:00Z',
-  },
-  {
-    id: 'log-4',
-    actor_id: 'ec26bt032@iitdh.ac.in',
-    actor_email: 'ec26bt032@iitdh.ac.in',
-    action: 'Published Campus-wide Portal Launch Announcement',
-    target_type: 'announcement',
-    target_id: 'a2222222-2222-4222-c222-222222222222',
-    created_at: '2026-11-08T08:00:00Z',
-  },
-];
+export {
+  INITIAL_CLUBS,
+  INITIAL_EVENTS,
+  INITIAL_ANNOUNCEMENTS,
+  INITIAL_CLUB_ADMINS,
+  INITIAL_ACTIVITY_LOGS,
+  INITIAL_PROFILES,
+};
 
 const STORAGE_KEYS = {
   CLUBS: 'iitdh_portal_clubs',
@@ -433,16 +32,34 @@ const STORAGE_KEYS = {
   ANNOUNCEMENTS: 'iitdh_portal_announcements',
   CLUB_ADMINS: 'iitdh_portal_club_admins',
   ACTIVITY_LOGS: 'iitdh_portal_activity_logs',
+  PROFILES: 'iitdh_portal_profiles',
 };
 
-// Storage helper with fallback initialization
+const isValidUuid = (value?: string | null): boolean => {
+  if (!value) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+};
+
+const generateUuid = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
 class DataStore {
   private clubs: Club[] = [];
   private events: EventItem[] = [];
   private announcements: AnnouncementItem[] = [];
   private clubAdmins: ClubAdminAssignment[] = [];
   private activityLogs: ActivityLogItem[] = [];
+  private profiles: Profile[] = [];
   private isSupabaseLive: boolean = false;
+  private version: number = 0;
   private listeners: Set<() => void> = new Set();
 
   constructor() {
@@ -453,7 +70,6 @@ class DataStore {
     try {
       const storedClubs = localStorage.getItem(STORAGE_KEYS.CLUBS);
       let parsedClubs: Club[] = storedClubs ? JSON.parse(storedClubs) : [...INITIAL_CLUBS];
-      // Ensure all seed clubs (Technical, Cultural, Sports) exist in the local dataset
       INITIAL_CLUBS.forEach((initClub) => {
         if (!parsedClubs.some((c) => c.name.toLowerCase() === initClub.name.toLowerCase() || c.id === initClub.id)) {
           parsedClubs.push(initClub);
@@ -462,26 +78,41 @@ class DataStore {
       this.clubs = parsedClubs;
 
       const storedEvents = localStorage.getItem(STORAGE_KEYS.EVENTS);
-      this.events = storedEvents ? JSON.parse(storedEvents) : INITIAL_EVENTS;
+      this.events = storedEvents ? JSON.parse(storedEvents) : [...INITIAL_EVENTS];
 
       const storedAnnouncements = localStorage.getItem(STORAGE_KEYS.ANNOUNCEMENTS);
-      this.announcements = storedAnnouncements ? JSON.parse(storedAnnouncements) : INITIAL_ANNOUNCEMENTS;
+      this.announcements = storedAnnouncements ? JSON.parse(storedAnnouncements) : [...INITIAL_ANNOUNCEMENTS];
 
       const storedClubAdmins = localStorage.getItem(STORAGE_KEYS.CLUB_ADMINS);
-      this.clubAdmins = storedClubAdmins ? JSON.parse(storedClubAdmins) : INITIAL_CLUB_ADMINS;
+      this.clubAdmins = storedClubAdmins ? JSON.parse(storedClubAdmins) : [...INITIAL_CLUB_ADMINS];
 
       const storedLogs = localStorage.getItem(STORAGE_KEYS.ACTIVITY_LOGS);
-      this.activityLogs = storedLogs ? JSON.parse(storedLogs) : INITIAL_ACTIVITY_LOGS;
+      this.activityLogs = storedLogs ? JSON.parse(storedLogs) : [...INITIAL_ACTIVITY_LOGS];
+
+      const storedProfiles = localStorage.getItem(STORAGE_KEYS.PROFILES);
+      this.profiles = storedProfiles ? JSON.parse(storedProfiles) : [...INITIAL_PROFILES];
     } catch {
       this.clubs = [...INITIAL_CLUBS];
       this.events = [...INITIAL_EVENTS];
       this.announcements = [...INITIAL_ANNOUNCEMENTS];
       this.clubAdmins = [...INITIAL_CLUB_ADMINS];
       this.activityLogs = [...INITIAL_ACTIVITY_LOGS];
+      this.profiles = [...INITIAL_PROFILES];
     }
 
-    // Try fetching from Supabase in background
+    // Sync from authoritative shared backend & Supabase
+    this.syncFromServer();
     this.syncFromSupabase();
+
+    if (typeof window !== 'undefined') {
+      // Keep all student sessions in sync automatically
+      window.addEventListener('focus', () => {
+        this.syncFromServer();
+      });
+      setInterval(() => {
+        this.syncFromServer();
+      }, 5000);
+    }
   }
 
   private save() {
@@ -491,10 +122,15 @@ class DataStore {
       localStorage.setItem(STORAGE_KEYS.ANNOUNCEMENTS, JSON.stringify(this.announcements));
       localStorage.setItem(STORAGE_KEYS.CLUB_ADMINS, JSON.stringify(this.clubAdmins));
       localStorage.setItem(STORAGE_KEYS.ACTIVITY_LOGS, JSON.stringify(this.activityLogs));
+      localStorage.setItem(STORAGE_KEYS.PROFILES, JSON.stringify(this.profiles));
     } catch (e) {
       console.warn('LocalStorage save error:', e);
     }
     this.notify();
+  }
+
+  public getVersion(): number {
+    return this.version;
   }
 
   public subscribe(listener: () => void) {
@@ -505,7 +141,32 @@ class DataStore {
   }
 
   private notify() {
+    this.version += 1;
     this.listeners.forEach((listener) => listener());
+  }
+
+  private lastServerSnapshot: string = '';
+
+  public async syncFromServer() {
+    try {
+      const response = await fetch('/api/portal/state', {
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (!response.ok) return;
+      const rawText = await response.text();
+      if (rawText === this.lastServerSnapshot) return;
+      const data = JSON.parse(rawText);
+      this.lastServerSnapshot = rawText;
+      if (Array.isArray(data.clubs)) this.clubs = data.clubs;
+      if (Array.isArray(data.events)) this.events = data.events;
+      if (Array.isArray(data.announcements)) this.announcements = data.announcements;
+      if (Array.isArray(data.clubAdmins)) this.clubAdmins = data.clubAdmins;
+      if (Array.isArray(data.activityLogs)) this.activityLogs = data.activityLogs;
+      if (Array.isArray(data.profiles)) this.profiles = data.profiles;
+      this.save();
+    } catch {
+      // Offline / static fallback gracefully ignored
+    }
   }
 
   public async syncFromSupabase() {
@@ -534,15 +195,52 @@ class DataStore {
         this.isSupabaseLive = true;
       }
 
-      this.save();
-    } catch (err) {
-      // PostgREST or network fallback silently handled
-      console.log('Operating in resilient mode with local/cached data state');
+      if (this.isSupabaseLive) {
+        this.save();
+      }
+    } catch {
+      // Operating with Express backend + local cache
     }
   }
 
   public getIsSupabaseLive(): boolean {
     return this.isSupabaseLive;
+  }
+
+  // --- PROFILES ---
+  public getProfiles(): Profile[] {
+    return [...this.profiles];
+  }
+
+  public async registerProfile(email: string, fullName?: string) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail.endsWith('@iitdh.ac.in')) return;
+
+    const existing = this.profiles.find((p) => p.email.toLowerCase() === cleanEmail);
+    if (!existing) {
+      this.profiles.push({
+        id: generateUuid(),
+        email: cleanEmail,
+        full_name: fullName?.trim() || cleanEmail.split('@')[0],
+        created_at: new Date().toISOString(),
+      });
+      this.save();
+    }
+
+    try {
+      const res = await fetch('/api/portal/profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, fullName }),
+      });
+      if (res.ok) {
+        const savedProfile = (await res.json()) as Profile;
+        const idx = this.profiles.findIndex((p) => p.email.toLowerCase() === cleanEmail);
+        if (idx >= 0) this.profiles[idx] = savedProfile;
+        else this.profiles.push(savedProfile);
+        this.save();
+      }
+    } catch {}
   }
 
   // --- CLUBS ---
@@ -557,11 +255,29 @@ class DataStore {
   public async createClub(club: Omit<Club, 'id' | 'created_at'>, actorEmail: string): Promise<Club> {
     const newClub: Club = {
       ...club,
-      id: 'c_' + Math.random().toString(36).substring(2, 9),
+      id: generateUuid(),
       created_at: new Date().toISOString(),
     };
 
-    // Attempt Supabase insert
+    try {
+      const res = await fetch('/api/portal/clubs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ club, actorEmail }),
+      });
+      if (res.ok) {
+        const created = (await res.json()) as Club;
+        await this.syncFromServer();
+        return created;
+      }
+      if (res.status >= 400 && res.status < 500) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Request rejected by server.');
+      }
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) throw err;
+    }
+
     try {
       const { data, error } = await supabase.from('clubs').insert([newClub]).select().single();
       if (!error && data) {
@@ -583,8 +299,26 @@ class DataStore {
     const index = this.clubs.findIndex((c) => c.id === id);
     if (index === -1) throw new Error('Club not found');
 
-    const updated = { ...this.clubs[index], ...updates };
+    try {
+      const res = await fetch(`/api/portal/clubs/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates, actorEmail }),
+      });
+      if (res.ok) {
+        const updated = (await res.json()) as Club;
+        await this.syncFromServer();
+        return updated;
+      }
+      if (res.status >= 400 && res.status < 500) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Request rejected by server.');
+      }
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) throw err;
+    }
 
+    const updated = { ...this.clubs[index], ...updates };
     try {
       const { error } = await supabase.from('clubs').update(updates).eq('id', id);
       if (!error) this.isSupabaseLive = true;
@@ -599,6 +333,24 @@ class DataStore {
   public async deleteClub(id: string, actorEmail: string): Promise<boolean> {
     const club = this.getClubById(id);
     const clubName = club?.name || 'Club';
+
+    try {
+      const res = await fetch(`/api/portal/clubs/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorEmail }),
+      });
+      if (res.ok) {
+        await this.syncFromServer();
+        return true;
+      }
+      if (res.status >= 400 && res.status < 500) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Request rejected by server.');
+      }
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) throw err;
+    }
 
     try {
       await supabase.from('clubs').delete().eq('id', id);
@@ -619,8 +371,7 @@ class DataStore {
     return this.events
       .filter((e) => {
         if (!includeDrafts && e.status === 'Draft') return false;
-        if (allowedClubIds && allowedClubIds.length > 0 && !allowedClubIds.includes(e.club_id)) {
-          // If strictly filtering by allowed clubs
+        if (allowedClubIds !== undefined && !allowedClubIds.includes(e.club_id)) {
           return false;
         }
         return true;
@@ -647,13 +398,36 @@ class DataStore {
   ): Promise<EventItem> {
     const newEvent: EventItem = {
       ...event,
-      id: 'e_' + Math.random().toString(36).substring(2, 9),
+      id: generateUuid(),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
     try {
-      const { data, error } = await supabase.from('events').insert([newEvent]).select().single();
+      const res = await fetch('/api/portal/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event, actorEmail }),
+      });
+      if (res.ok) {
+        const created = (await res.json()) as EventItem;
+        await this.syncFromServer();
+        return { ...created, club: this.getClubById(created.club_id) };
+      }
+      if (res.status >= 400 && res.status < 500) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Request rejected by server.');
+      }
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) throw err;
+    }
+
+    try {
+      const supabasePayload = {
+        ...newEvent,
+        created_by: isValidUuid(newEvent.created_by) ? newEvent.created_by : undefined,
+      };
+      const { data, error } = await supabase.from('events').insert([supabasePayload]).select().single();
       if (!error && data) {
         this.events.unshift(data);
         this.isSupabaseLive = true;
@@ -672,6 +446,25 @@ class DataStore {
   public async updateEvent(id: string, updates: Partial<EventItem>, actorEmail: string): Promise<EventItem> {
     const index = this.events.findIndex((e) => e.id === id);
     if (index === -1) throw new Error('Event not found');
+
+    try {
+      const res = await fetch(`/api/portal/events/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates, actorEmail }),
+      });
+      if (res.ok) {
+        const updated = (await res.json()) as EventItem;
+        await this.syncFromServer();
+        return { ...updated, club: this.getClubById(updated.club_id) };
+      }
+      if (res.status >= 400 && res.status < 500) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Request rejected by server.');
+      }
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) throw err;
+    }
 
     const updated: EventItem = {
       ...this.events[index],
@@ -695,6 +488,24 @@ class DataStore {
     const eventTitle = event?.title || 'Event';
 
     try {
+      const res = await fetch(`/api/portal/events/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorEmail }),
+      });
+      if (res.ok) {
+        await this.syncFromServer();
+        return true;
+      }
+      if (res.status >= 400 && res.status < 500) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Request rejected by server.');
+      }
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) throw err;
+    }
+
+    try {
       await supabase.from('events').delete().eq('id', id);
     } catch {}
 
@@ -709,8 +520,8 @@ class DataStore {
     return this.announcements
       .filter((a) => {
         if (!includeDrafts && a.status === 'Draft') return false;
-        if (allowedClubIds && allowedClubIds.length > 0) {
-          // If allowedClubIds specified for club admin
+        if (allowedClubIds !== undefined) {
+          // Scoped view (e.g., Club Admin managing their clubs)
           if (a.club_id && !allowedClubIds.includes(a.club_id)) return false;
         }
         return true;
@@ -728,14 +539,38 @@ class DataStore {
   ): Promise<AnnouncementItem> {
     const newAnnouncement: AnnouncementItem = {
       ...announcement,
-      id: 'a_' + Math.random().toString(36).substring(2, 9),
+      id: generateUuid(),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       published_at: announcement.published_at || new Date().toISOString(),
     };
 
     try {
-      const { data, error } = await supabase.from('announcements').insert([newAnnouncement]).select().single();
+      const res = await fetch('/api/portal/announcements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ announcement, actorEmail }),
+      });
+      if (res.ok) {
+        const created = (await res.json()) as AnnouncementItem;
+        await this.syncFromServer();
+        return { ...created, club: created.club_id ? this.getClubById(created.club_id) : undefined };
+      } else if (res.status >= 400 && res.status < 500) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Unauthorized to publish announcement.');
+      }
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) {
+        throw err;
+      }
+    }
+
+    try {
+      const supabasePayload = {
+        ...newAnnouncement,
+        created_by: isValidUuid(newAnnouncement.created_by) ? newAnnouncement.created_by : undefined,
+      };
+      const { data, error } = await supabase.from('announcements').insert([supabasePayload]).select().single();
       if (!error && data) {
         this.announcements.unshift(data);
         this.isSupabaseLive = true;
@@ -759,6 +594,24 @@ class DataStore {
     const index = this.announcements.findIndex((a) => a.id === id);
     if (index === -1) throw new Error('Announcement not found');
 
+    try {
+      const res = await fetch(`/api/portal/announcements/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates, actorEmail }),
+      });
+      if (res.ok) {
+        const updated = (await res.json()) as AnnouncementItem;
+        await this.syncFromServer();
+        return { ...updated, club: updated.club_id ? this.getClubById(updated.club_id) : undefined };
+      } else if (res.status >= 400 && res.status < 500) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Unauthorized to update announcement.');
+      }
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) throw err;
+    }
+
     const updated: AnnouncementItem = {
       ...this.announcements[index],
       ...updates,
@@ -766,7 +619,11 @@ class DataStore {
     };
 
     try {
-      const { error } = await supabase.from('announcements').update(updates).eq('id', id);
+      const supabaseUpdates = {
+        ...updates,
+        created_by: isValidUuid(updates.created_by) ? updates.created_by : undefined,
+      };
+      const { error } = await supabase.from('announcements').update(supabaseUpdates).eq('id', id);
       if (!error) this.isSupabaseLive = true;
     } catch {}
 
@@ -779,6 +636,23 @@ class DataStore {
   public async deleteAnnouncement(id: string, actorEmail: string): Promise<boolean> {
     const ann = this.announcements.find((a) => a.id === id);
     const title = ann?.title || 'Announcement';
+
+    try {
+      const res = await fetch(`/api/portal/announcements/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorEmail }),
+      });
+      if (res.ok) {
+        await this.syncFromServer();
+        return true;
+      } else if (res.status >= 400 && res.status < 500) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Unauthorized to delete announcement.');
+      }
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) throw err;
+    }
 
     try {
       await supabase.from('announcements').delete().eq('id', id);
@@ -815,7 +689,24 @@ class DataStore {
     const club = this.getClubById(clubId);
     if (!club) throw new Error('Invalid club ID');
 
-    // Check existing
+    try {
+      const res = await fetch('/api/portal/club-admins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userEmail, clubId, actorEmail }),
+      });
+      if (res.ok) {
+        const created = (await res.json()) as ClubAdminAssignment;
+        await this.syncFromServer();
+        return created;
+      } else if (res.status >= 400 && res.status < 500) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Request rejected by server.');
+      }
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) throw err;
+    }
+
     const existing = this.clubAdmins.find(
       (ca) => ca.user_email?.toLowerCase() === userEmail.toLowerCase() && ca.club_id === clubId
     );
@@ -824,8 +715,8 @@ class DataStore {
     }
 
     const newAssignment: ClubAdminAssignment = {
-      id: 'cadm_' + Math.random().toString(36).substring(2, 9),
-      user_id: 'uid_' + userEmail.replace(/[^a-zA-Z0-9]/g, '_'),
+      id: generateUuid(),
+      user_id: generateUuid(),
       user_email: userEmail.toLowerCase().trim(),
       club_id: clubId,
       club_name: club.name,
@@ -847,6 +738,23 @@ class DataStore {
     const assignment = this.clubAdmins.find((ca) => ca.id === id);
     const targetEmail = assignment?.user_email || 'User';
     const clubName = assignment?.club_name || 'Club';
+
+    try {
+      const res = await fetch(`/api/portal/club-admins/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorEmail }),
+      });
+      if (res.ok) {
+        await this.syncFromServer();
+        return true;
+      } else if (res.status >= 400 && res.status < 500) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Request rejected by server.');
+      }
+    } catch (err: any) {
+      if (err?.message && !err.message.includes('fetch')) throw err;
+    }
 
     try {
       await supabase.from('club_admins').delete().eq('id', id);
@@ -872,7 +780,7 @@ class DataStore {
     targetId?: string
   ) {
     const newLog: ActivityLogItem = {
-      id: 'log_' + Math.random().toString(36).substring(2, 9),
+      id: generateUuid(),
       actor_id: actorEmail,
       actor_email: actorEmail,
       action,
@@ -882,15 +790,29 @@ class DataStore {
     };
 
     try {
-      supabase.from('activity_logs').insert([newLog]);
+      fetch('/api/portal/activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorEmail, action, targetType, targetId }),
+      });
     } catch {}
 
     this.activityLogs.unshift(newLog);
-    if (this.activityLogs.length > 100) {
-      this.activityLogs = this.activityLogs.slice(0, 100);
+    if (this.activityLogs.length > 200) {
+      this.activityLogs = this.activityLogs.slice(0, 200);
     }
     this.save();
   }
 }
 
 export const dataStore = new DataStore();
+
+export function useDataStoreVersion(): number {
+  const [version, setVersion] = useState(() => dataStore.getVersion());
+  useEffect(() => {
+    return dataStore.subscribe(() => {
+      setVersion(dataStore.getVersion());
+    });
+  }, []);
+  return version;
+}

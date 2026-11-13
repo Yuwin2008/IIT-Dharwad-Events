@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../lib/authContext';
-import { dataStore } from '../../lib/dataStore';
+import { dataStore, useDataStoreVersion } from '../../lib/dataStore';
 import { 
   Building2, 
   Plus, 
@@ -16,11 +16,8 @@ import { Club } from '../../types';
 
 export const ManageClubs: React.FC = () => {
   const { user, isSuperAdmin } = useAuth();
-  const [clubs, setClubs] = useState<Club[]>(() => dataStore.getClubs());
-
-  const refreshClubs = () => {
-    setClubs(dataStore.getClubs());
-  };
+  useDataStoreVersion();
+  const clubs = dataStore.getClubs();
 
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -94,7 +91,6 @@ export const ManageClubs: React.FC = () => {
         setSuccessMessage(`Club "${name}" added to the institute directory.`);
       }
 
-      refreshClubs();
       resetForm();
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to save club.');
@@ -108,9 +104,12 @@ export const ManageClubs: React.FC = () => {
     }
 
     if (window.confirm(`Are you sure you want to permanently delete "${clubName}"? This will delete all related club events and announcements.`)) {
-      await dataStore.deleteClub(id, user?.email || 'admin');
-      refreshClubs();
-      setSuccessMessage(`Club "${clubName}" deleted.`);
+      try {
+        await dataStore.deleteClub(id, user?.email || 'admin');
+        setSuccessMessage(`Club "${clubName}" deleted.`);
+      } catch (err: any) {
+        setErrorMessage(err.message || 'Failed to delete club.');
+      }
     }
   };
 

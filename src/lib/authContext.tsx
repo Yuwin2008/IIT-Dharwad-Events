@@ -54,11 +54,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // 1. Check active Supabase session
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user?.email && isIITDHEmail(session.user.email)) {
+          const fullName = session.user.user_metadata?.full_name || session.user.email.split('@')[0];
+          dataStore.registerProfile(session.user.email, fullName);
           const { role, assignedClubIds } = resolveUserRole(session.user.email);
           setUser({
             id: session.user.id,
             email: session.user.email,
-            fullName: session.user.user_metadata?.full_name || session.user.email.split('@')[0],
+            fullName,
             role,
             assignedClubIds,
           });
@@ -70,6 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const stored = localStorage.getItem(LOCAL_USER_KEY);
         if (stored) {
           const parsed = JSON.parse(stored) as AuthenticatedUser;
+          dataStore.registerProfile(parsed.email, parsed.fullName);
           // Re-evaluate role in case assignments changed
           const { role, assignedClubIds } = resolveUserRole(parsed.email);
           setUser({
@@ -92,6 +95,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser((prev) => {
         if (!prev) return null;
         const { role, assignedClubIds } = resolveUserRole(prev.email);
+        const sameRole = prev.role === role;
+        const sameClubs =
+          prev.assignedClubIds.length === assignedClubIds.length &&
+          prev.assignedClubIds.every((id, i) => id === assignedClubIds[i]);
+        if (sameRole && sameClubs) return prev;
         const updated = { ...prev, role, assignedClubIds };
         localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(updated));
         return updated;
@@ -107,6 +115,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: 'Access restricted: Please enter an official IIT Dharwad institutional email (@iitdh.ac.in).' };
     }
 
+    await dataStore.syncFromServer();
+
     try {
       if (password) {
         // Attempt Supabase login
@@ -116,11 +126,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         if (!error && data?.user?.email) {
+          const fullName = data.user.user_metadata?.full_name || cleanEmail.split('@')[0];
+          await dataStore.registerProfile(cleanEmail, fullName);
           const { role, assignedClubIds } = resolveUserRole(cleanEmail);
           const authUser: AuthenticatedUser = {
             id: data.user.id,
             email: cleanEmail,
-            fullName: data.user.user_metadata?.full_name || cleanEmail.split('@')[0],
+            fullName,
             role,
             assignedClubIds,
           };
@@ -131,12 +143,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch {}
 
-    // Resilient fallback for institutional mock credentials/offline testing
+    // Resilient fallback for institutional credentials
+    const existingProfile = dataStore.getProfiles().find((p) => p.email.toLowerCase() === cleanEmail);
+    const fullName = existingProfile?.full_name || cleanEmail.split('@')[0].replace('.', ' ').toUpperCase();
+    await dataStore.registerProfile(cleanEmail, fullName);
     const { role, assignedClubIds } = resolveUserRole(cleanEmail);
     const authUser: AuthenticatedUser = {
-      id: 'usr_' + cleanEmail.replace(/[^a-zA-Z0-9]/g, '_'),
+      id: existingProfile?.id || 'usr_' + cleanEmail.replace(/[^a-zA-Z0-9]/g, '_'),
       email: cleanEmail,
-      fullName: cleanEmail.split('@')[0].replace('.', ' ').toUpperCase(),
+      fullName,
       role,
       assignedClubIds,
     };
@@ -156,6 +171,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: 'Password must be at least 6 characters in length.' };
     }
 
+    await dataStore.syncFromServer();
+
     try {
       const { data, error } = await supabase.auth.signUp({
         email: cleanEmail,
@@ -168,14 +185,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error) {
-        // If Supabase returns error (e.g. rate limit), fall back gracefully
         console.warn('Supabase signup returned notice:', error.message);
       } else if (data?.user) {
+        const resolvedName = fullName || cleanEmail.split('@')[0];
+        await dataStore.registerProfile(cleanEmail, resolvedName);
         const { role, assignedClubIds } = resolveUserRole(cleanEmail);
         const authUser: AuthenticatedUser = {
           id: data.user.id,
           email: cleanEmail,
-          fullName: fullName || cleanEmail.split('@')[0],
+          fullName: resolvedName,
           role,
           assignedClubIds,
         };
@@ -185,11 +203,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch {}
 
+    const resolvedName = fullName || cleanEmail.split('@')[0];
+    await dataStore.registerProfile(cleanEmail, resolvedName);
     const { role, assignedClubIds } = resolveUserRole(cleanEmail);
     const authUser: AuthenticatedUser = {
       id: 'usr_' + cleanEmail.replace(/[^a-zA-Z0-9]/g, '_'),
       email: cleanEmail,
-      fullName: fullName || cleanEmail.split('@')[0],
+      fullName: resolvedName,
       role,
       assignedClubIds,
     };
@@ -218,13 +238,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(authUser);
       localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(authUser));
     } else if (type === 'club_admin') {
+      const assigned = dataStore.getClubIdsForUser('coding_admin@iitdh.ac.in');
       const codingClubId = 'c5555555-5555-4555-a555-555555555555';
       const authUser: AuthenticatedUser = {
         id: 'usr_coding_admin',
         email: 'coding_admin@iitdh.ac.in',
         fullName: 'Coding Club Lead',
         role: 'club_admin',
-        assignedClubIds: [codingClubId],
+        assignedClubIds: assigned.length > 0 ? assigned : [codingClubId],
       };
       setUser(authUser);
       localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(authUser));

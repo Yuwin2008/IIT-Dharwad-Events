@@ -1,8 +1,9 @@
 import React from 'react';
-import { dataStore } from '../../lib/dataStore';
+import { dataStore, useDataStoreVersion } from '../../lib/dataStore';
 import { Activity, ShieldCheck, Clock, User } from 'lucide-react';
 
 export const ActivityLogView: React.FC = () => {
+  useDataStoreVersion();
   const logs = dataStore.getActivityLogs();
 
   return (

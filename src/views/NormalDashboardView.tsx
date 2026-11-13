@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../lib/authContext';
-import { dataStore } from '../lib/dataStore';
+import { dataStore, useDataStoreVersion } from '../lib/dataStore';
 import { EventCard } from '../components/events/EventCard';
 import { ClubCard } from '../components/clubs/ClubCard';
 import { AnnouncementCard } from '../components/announcements/AnnouncementCard';
@@ -36,7 +36,12 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
   onNavigateAdmin,
 }) => {
   const { user, logout, canAccessAdmin } = useAuth();
+  useDataStoreVersion();
   const [activeTab, setActiveTab] = useState<string>(initialTab);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   const clubs = dataStore.getClubs();
   const events = dataStore.getEvents(false);

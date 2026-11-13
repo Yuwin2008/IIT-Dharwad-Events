@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../lib/authContext';
+import { useDataStoreVersion } from '../lib/dataStore';
 import { AdminOverview } from '../components/admin/AdminOverview';
 import { ManageEvents } from '../components/admin/ManageEvents';
 import { ManageAnnouncements } from '../components/admin/ManageAnnouncements';
@@ -35,8 +36,13 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   onNavigateStudentDashboard,
 }) => {
   const { user, isSuperAdmin, isClubAdmin, canAccessAdmin, logout } = useAuth();
+  useDataStoreVersion();
   const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [sqlModalOpen, setSqlModalOpen] = useState(false);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   // Security Guard: double-check permission
   if (!canAccessAdmin) {

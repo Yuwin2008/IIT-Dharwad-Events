@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../lib/authContext';
-import { dataStore } from '../lib/dataStore';
+import { dataStore, useDataStoreVersion } from '../lib/dataStore';
 import { VibeAThonHero } from '../components/events/VibeAThonHero';
 import { EventCard } from '../components/events/EventCard';
 import { ClubCard } from '../components/clubs/ClubCard';
@@ -32,6 +32,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onOpenAuth,
 }) => {
   const { user } = useAuth();
+  useDataStoreVersion();
 
   const clubs = dataStore.getClubs();
   const allEvents = dataStore.getEvents(false);

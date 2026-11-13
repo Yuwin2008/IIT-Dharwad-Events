@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from '../../lib/authContext';
-import { dataStore } from '../../lib/dataStore';
+import { dataStore, useDataStoreVersion } from '../../lib/dataStore';
 import { 
   Building2, 
   Calendar, 
@@ -19,6 +19,7 @@ interface AdminOverviewProps {
 
 export const AdminOverview: React.FC<AdminOverviewProps> = ({ onNavigateTab, onOpenSqlModal }) => {
   const { user, isSuperAdmin, isClubAdmin, assignedClubs } = useAuth();
+  useDataStoreVersion();
 
   const allClubs = dataStore.getClubs();
   // Filter for Club Admins

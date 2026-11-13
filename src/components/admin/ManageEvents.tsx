@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/authContext';
-import { dataStore } from '../../lib/dataStore';
+import { dataStore, useDataStoreVersion } from '../../lib/dataStore';
 import { 
   Calendar, 
   Plus, 
@@ -22,6 +22,7 @@ interface ManageEventsProps {
 
 export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) => {
   const { user, isSuperAdmin, assignedClubs } = useAuth();
+  useDataStoreVersion();
 
   const clubs = dataStore.getClubs();
   const allowedClubs = isSuperAdmin
@@ -29,13 +30,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
     : clubs.filter((c) => assignedClubs.includes(c.id));
   const allowedClubIds = allowedClubs.map((c) => c.id);
 
-  const [events, setEvents] = useState<EventItem[]>(() =>
-    dataStore.getEvents(true, isSuperAdmin ? undefined : allowedClubIds)
-  );
-
-  const refreshEvents = () => {
-    setEvents(dataStore.getEvents(true, isSuperAdmin ? undefined : allowedClubIds));
-  };
+  const events = dataStore.getEvents(true, isSuperAdmin ? undefined : allowedClubIds);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -57,6 +52,12 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
 
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  useEffect(() => {
+    if (!clubId && allowedClubs.length > 0) {
+      setClubId(allowedClubs[0].id);
+    }
+  }, [clubId, allowedClubs]);
 
   const resetForm = () => {
     setIsEditing(false);
@@ -102,7 +103,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent, overrideStatus?: EventStatus) => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
@@ -121,6 +122,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
     }
 
     try {
+      const effectiveStatus = overrideStatus || status;
       const eventPayload = {
         club_id: clubId,
         title: title.trim(),
@@ -134,8 +136,8 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
         registration_url: regUrl.trim() || undefined,
         registration_deadline: regDeadline ? new Date(regDeadline).toISOString() : undefined,
         poster_url: posterUrl.trim(),
-        status,
-        created_by: user?.email,
+        status: effectiveStatus,
+        created_by: user?.id,
       };
 
       if (editingId) {
@@ -146,7 +148,6 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
         setSuccessMessage(`Event "${title}" successfully created!`);
       }
 
-      refreshEvents();
       resetForm();
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to save event.');
@@ -160,9 +161,12 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
     }
 
     if (window.confirm(`Are you sure you want to delete the event "${eventTitle}"? This action is permanent.`)) {
-      await dataStore.deleteEvent(id, user?.email || 'admin');
-      refreshEvents();
-      setSuccessMessage(`Event "${eventTitle}" was deleted.`);
+      try {
+        await dataStore.deleteEvent(id, user?.email || 'admin');
+        setSuccessMessage(`Event "${eventTitle}" was deleted.`);
+      } catch (err: any) {
+        setErrorMessage(err.message || 'Failed to delete event.');
+      }
     }
   };
 
@@ -435,7 +439,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
               type="button"
               onClick={(e) => {
                 setStatus('Draft');
-                handleSubmit(e);
+                handleSubmit(e, 'Draft');
               }}
               className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-colors"
             >

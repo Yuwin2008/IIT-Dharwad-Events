@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/authContext';
-import { dataStore } from '../../lib/dataStore';
+import { dataStore, useDataStoreVersion } from '../../lib/dataStore';
+import { SUPER_ADMIN_EMAIL } from '../../lib/seedData';
 import { 
   UserCheck, 
   UserPlus, 
@@ -16,15 +17,11 @@ import { ClubAdminAssignment, Club } from '../../types';
 
 export const ManageClubAdmins: React.FC = () => {
   const { user, isSuperAdmin } = useAuth();
+  useDataStoreVersion();
 
   const clubs = dataStore.getClubs();
-  const [assignments, setAssignments] = useState<ClubAdminAssignment[]>(() =>
-    dataStore.getClubAdmins()
-  );
-
-  const refreshAssignments = () => {
-    setAssignments(dataStore.getClubAdmins());
-  };
+  const assignments = dataStore.getClubAdmins();
+  const syncedProfiles = dataStore.getProfiles();
 
   // Form State
   const [searchQuery, setSearchQuery] = useState('');
@@ -34,18 +31,27 @@ export const ManageClubAdmins: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  // Sample registered institutional accounts for discovery
-  const registeredUsersPool = [
-    'coding_admin@iitdh.ac.in',
-    'robotics_lead@iitdh.ac.in',
-    'ingene_lead@iitdh.ac.in',
-    'ai_coordinator@iitdh.ac.in',
-    'design_head@iitdh.ac.in',
-    'student26@iitdh.ac.in',
-    'ec26bt001@iitdh.ac.in',
-    'cs26bt015@iitdh.ac.in',
-    'me26bt042@iitdh.ac.in',
-  ];
+  useEffect(() => {
+    if (!selectedClubId && clubs.length > 0) {
+      setSelectedClubId(clubs[0].id);
+    }
+  }, [selectedClubId, clubs]);
+
+  // Merge live synced registered accounts with sample accounts for discovery
+  const registeredUsersPool = Array.from(
+    new Set([
+      ...syncedProfiles.map((p) => p.email.toLowerCase()),
+      'coding_admin@iitdh.ac.in',
+      'robotics_lead@iitdh.ac.in',
+      'ingene_lead@iitdh.ac.in',
+      'ai_coordinator@iitdh.ac.in',
+      'design_head@iitdh.ac.in',
+      'student26@iitdh.ac.in',
+      'ec26bt001@iitdh.ac.in',
+      'cs26bt015@iitdh.ac.in',
+      'me26bt042@iitdh.ac.in',
+    ])
+  ).filter((email) => email !== SUPER_ADMIN_EMAIL.toLowerCase());
 
   const filteredUsers = registeredUsersPool.filter((email) =>
     email.toLowerCase().includes(searchQuery.toLowerCase())
@@ -74,7 +80,6 @@ export const ManageClubAdmins: React.FC = () => {
 
     try {
       await dataStore.assignClubAdmin(targetEmail, selectedClubId, user?.email || 'super_admin');
-      refreshAssignments();
       const clubName = clubs.find((c) => c.id === selectedClubId)?.name;
       setSuccessMessage(`Successfully granted Club Admin privileges for ${clubName} to ${targetEmail}.`);
       setSelectedEmail('');
@@ -95,9 +100,12 @@ export const ManageClubAdmins: React.FC = () => {
     );
 
     if (confirmed) {
-      await dataStore.removeClubAdmin(assignment.id, user?.email || 'super_admin');
-      refreshAssignments();
-      setSuccessMessage(`Revoked ${assignment.club_name} administrative privileges from ${assignment.user_email}.`);
+      try {
+        await dataStore.removeClubAdmin(assignment.id, user?.email || 'super_admin');
+        setSuccessMessage(`Revoked ${assignment.club_name} administrative privileges from ${assignment.user_email}.`);
+      } catch (err: any) {
+        setErrorMessage(err.message || 'Failed to remove administrator.');
+      }
     }
   };
 

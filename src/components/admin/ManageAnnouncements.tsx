@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/authContext';
-import { dataStore } from '../../lib/dataStore';
+import { dataStore, useDataStoreVersion } from '../../lib/dataStore';
 import { 
   Megaphone, 
   Plus, 
@@ -15,6 +15,7 @@ import { AnnouncementItem, AnnouncementType, AnnouncementStatus } from '../../ty
 
 export const ManageAnnouncements: React.FC = () => {
   const { user, isSuperAdmin, assignedClubs } = useAuth();
+  useDataStoreVersion();
 
   const clubs = dataStore.getClubs();
   const allowedClubs = isSuperAdmin
@@ -22,13 +23,7 @@ export const ManageAnnouncements: React.FC = () => {
     : clubs.filter((c) => assignedClubs.includes(c.id));
   const allowedClubIds = allowedClubs.map((c) => c.id);
 
-  const [announcements, setAnnouncements] = useState<AnnouncementItem[]>(() =>
-    dataStore.getAnnouncements(true, isSuperAdmin ? undefined : allowedClubIds)
-  );
-
-  const refreshAnnouncements = () => {
-    setAnnouncements(dataStore.getAnnouncements(true, isSuperAdmin ? undefined : allowedClubIds));
-  };
+  const announcements = dataStore.getAnnouncements(true, isSuperAdmin ? undefined : allowedClubIds);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -46,6 +41,12 @@ export const ManageAnnouncements: React.FC = () => {
 
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  useEffect(() => {
+    if (!clubId && allowedClubs.length > 0) {
+      setClubId(allowedClubs[0].id);
+    }
+  }, [clubId, allowedClubs]);
 
   const resetForm = () => {
     setIsEditing(false);
@@ -122,7 +123,7 @@ export const ManageAnnouncements: React.FC = () => {
         attachment_url: attachmentUrl.trim() || undefined,
         status,
         published_at: new Date().toISOString(),
-        created_by: user?.email,
+        created_by: user?.id,
       };
 
       if (editingId) {
@@ -133,7 +134,6 @@ export const ManageAnnouncements: React.FC = () => {
         setSuccessMessage(`Announcement "${title}" published successfully!`);
       }
 
-      refreshAnnouncements();
       resetForm();
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to save announcement.');
@@ -151,9 +151,12 @@ export const ManageAnnouncements: React.FC = () => {
     }
 
     if (window.confirm(`Are you sure you want to delete the announcement "${annTitle}"?`)) {
-      await dataStore.deleteAnnouncement(id, user?.email || 'admin');
-      refreshAnnouncements();
-      setSuccessMessage(`Announcement deleted.`);
+      try {
+        await dataStore.deleteAnnouncement(id, user?.email || 'admin');
+        setSuccessMessage(`Announcement deleted.`);
+      } catch (err: any) {
+        setErrorMessage(err.message || 'Failed to delete announcement.');
+      }
     }
   };
 

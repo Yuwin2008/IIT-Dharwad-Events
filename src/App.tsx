@@ -13,11 +13,12 @@ import { NormalDashboardView } from './views/NormalDashboardView';
 import { AdminDashboardView } from './views/AdminDashboardView';
 import { UnauthorizedView } from './views/UnauthorizedView';
 
-import { dataStore } from './lib/dataStore';
+import { dataStore, useDataStoreVersion } from './lib/dataStore';
 import { EventItem, Club } from './types';
 
 function AppContent() {
   const { user, canAccessAdmin, loading } = useAuth();
+  useDataStoreVersion();
 
   // Router State
   const [currentRoute, setCurrentRoute] = useState<string>(() => {
