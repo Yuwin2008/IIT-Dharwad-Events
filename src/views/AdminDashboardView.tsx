@@ -67,7 +67,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Admin Sidebar Navigation */}
-        <aside className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-6 sticky top-20">
+        <aside className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-6 lg:sticky lg:top-20">
           {/* Header */}
           <div className="flex items-center gap-3 px-2 py-1">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${

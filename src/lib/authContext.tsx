@@ -305,18 +305,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
         }
 
-        // Fire-and-forget Supabase Auth mirror without blocking registration
-        void (async () => {
-          try {
-            await supabase.auth.signUp({
-              email: cleanEmail,
-              password,
-              options: { data: { full_name: fullName.trim() } },
-            });
-            await supabase.auth.signOut().catch(() => {});
-          } catch {}
-        })();
-
         const authUser: AuthenticatedUser = {
           id: body.profile.id,
           email: cleanEmail,

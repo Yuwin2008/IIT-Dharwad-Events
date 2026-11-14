@@ -82,6 +82,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
   // Filters for Events Tab
   const [eventSearch, setEventSearch] = useState('');
   const [clubFilter, setClubFilter] = useState('ALL');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [timeFilter, setTimeFilter] = useState<'upcoming' | 'all'>('all');
   const [bookmarkedOnlyFilter, setBookmarkedOnlyFilter] = useState(false);
 
@@ -138,6 +139,14 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
   const filteredEvents = events.filter((evt) => {
     if (bookmarkedOnlyFilter && !bookmarkedEventIds.includes(evt.id)) return false;
     if (clubFilter !== 'ALL' && evt.club_id !== clubFilter) return false;
+    if (categoryFilter !== 'ALL') {
+      const cat = (evt.category || '').toLowerCase();
+      const target = categoryFilter.toLowerCase();
+      const singular = target.endsWith('s') ? target.slice(0, -1) : target;
+      if (!cat.includes(target) && !cat.includes(singular)) {
+        return false;
+      }
+    }
     if (timeFilter === 'upcoming') {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
@@ -184,7 +193,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Sidebar Navigation */}
-        <aside className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-6 sticky top-20">
+        <aside className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-6 lg:sticky lg:top-20">
           <div className="flex items-center gap-3 px-2 py-1">
             <div className="w-10 h-10 rounded-xl bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-400 font-bold">
               <GraduationCap className="w-5 h-5" />
@@ -399,7 +408,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                     </button>
 
                     {notifMenuOpen && (
-                      <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-30 overflow-hidden">
+                      <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-[min(22rem,calc(100vw-3rem))] sm:w-96 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-30 overflow-hidden">
                         <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
                           <div>
                             <h4 className="text-xs font-bold text-white">Notification Center</h4>
@@ -611,53 +620,72 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
               </div>
 
               {/* Filters */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={clubFilter}
-                    onChange={(e) => setClubFilter(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="ALL">All Clubs</option>
-                    {clubs.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={timeFilter}
-                    onChange={(e) => setTimeFilter(e.target.value as 'upcoming' | 'all')}
-                    className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="all">All Published Events</option>
-                    <option value="upcoming">Upcoming Events Only</option>
-                  </select>
-
-                  <button
-                    type="button"
-                    onClick={() => setBookmarkedOnlyFilter((prev) => !prev)}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1.5 ${
-                      bookmarkedOnlyFilter
-                        ? 'bg-indigo-600 text-white border-indigo-500'
-                        : 'bg-slate-950 text-slate-300 hover:text-white border-slate-800'
-                    }`}
-                  >
-                    <Bookmark className="w-3.5 h-3.5" />
-                    <span>Bookmarked Only ({bookmarkedEventIds.length})</span>
-                  </button>
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {['ALL', 'Workshops', 'Competitions', 'Guest Lectures', 'Social', 'Buildathon', 'Cultural', 'Sports'].map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setCategoryFilter(cat)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+                        categoryFilter === cat
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'bg-slate-950 text-slate-300 hover:text-white border border-slate-800'
+                      }`}
+                    >
+                      {cat === 'ALL' ? 'All Categories' : cat}
+                    </button>
+                  ))}
                 </div>
 
-                <div className="relative min-w-[220px]">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={eventSearch}
-                    onChange={(e) => setEventSearch(e.target.value)}
-                    placeholder="Search by event name..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
-                  />
+                <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={clubFilter}
+                      onChange={(e) => setClubFilter(e.target.value)}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 max-w-full"
+                    >
+                      <option value="ALL">All Clubs</option>
+                      {clubs.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={timeFilter}
+                      onChange={(e) => setTimeFilter(e.target.value as 'upcoming' | 'all')}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 max-w-full"
+                    >
+                      <option value="all">All Published Events</option>
+                      <option value="upcoming">Upcoming Events Only</option>
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={() => setBookmarkedOnlyFilter((prev) => !prev)}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1.5 ${
+                        bookmarkedOnlyFilter
+                          ? 'bg-indigo-600 text-white border-indigo-500'
+                          : 'bg-slate-950 text-slate-300 hover:text-white border-slate-800'
+                      }`}
+                    >
+                      <Bookmark className="w-3.5 h-3.5" />
+                      <span>Bookmarked Only ({bookmarkedEventIds.length})</span>
+                    </button>
+                  </div>
+
+                  <div className="relative w-full md:w-60">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={eventSearch}
+                      onChange={(e) => setEventSearch(e.target.value)}
+                      placeholder="Search by event name..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -695,7 +723,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                   </p>
                 </div>
 
-                <div className="relative min-w-[240px]">
+                <div className="relative w-full sm:w-64">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"

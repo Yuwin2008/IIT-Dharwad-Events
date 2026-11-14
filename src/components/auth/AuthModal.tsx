@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/authContext';
 import { isIITDHEmail, normalizeEmail } from '../../lib/supabase';
 import { UserRole } from '../../types';
-import { X, Lock, Mail, User, ShieldAlert, CheckCircle2, ArrowRight } from 'lucide-react';
+import { X, Lock, Mail, User, ShieldAlert, CheckCircle2, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -27,6 +27,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [showLoginHint, setShowLoginHint] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const { login, signup, resetPassword } = useAuth();
 
@@ -40,6 +41,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setShowLoginHint(false);
       setSuccessMessage('');
       setIsSubmitting(false);
+      setShowPassword(false);
     }
   }, [isOpen, initialMode]);
 
@@ -135,14 +137,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
     >
       <div
-        className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full shadow-2xl overflow-hidden relative"
+        className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full max-h-[92dvh] overflow-y-auto shadow-2xl relative"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 pt-6 pb-4 border-b border-slate-800/80 flex items-start justify-between">
+        <div className="px-4 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-slate-800/80 flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">
@@ -206,7 +208,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         )}
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4">
           {errorMessage && (
             <div className="p-3 bg-rose-950/50 border border-rose-800/60 rounded-lg text-rose-200 text-xs space-y-2">
               <div className="flex items-start gap-2">
@@ -282,6 +284,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 onBlur={() => setEmail((prev) => normalizeEmail(prev))}
                 placeholder="rollno@iitdh.ac.in"
                 autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                inputMode="email"
                 className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
               />
             </div>
@@ -327,15 +333,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 required
                 minLength={6}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-9 pr-10 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-1"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
           </div>
 
@@ -396,10 +410,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
+          {mode === 'login' && (
+            <div className="text-center pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('signup');
+                  setErrorMessage('');
+                  setSuccessMessage('');
+                  setShowSignupHint(false);
+                }}
+                className="text-xs text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+              >
+                First time on this portal with @iitdh.ac.in? Create your account →
+              </button>
+            </div>
+          )}
+
           {/* Authentication policy */}
           <div className="pt-3 border-t border-slate-800">
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              All users (Students, Club Admins, and Super Admins) must sign in with their <code className="text-indigo-300">@iitdh.ac.in</code> email and password on each visit. New to the portal? Select <strong className="text-slate-200">New Registration</strong> above.
+              Any IIT Dharwad student, faculty, or club member with a valid <code className="text-indigo-300">@iitdh.ac.in</code> email can register and sign in across any device. Sign-in is required on each visit.
             </p>
           </div>
         </form>

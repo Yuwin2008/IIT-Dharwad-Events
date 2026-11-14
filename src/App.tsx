@@ -154,17 +154,25 @@ function AppContent() {
     if (currentRoute.startsWith('/dashboard')) {
       if (!user) {
         return (
-          <div className="max-w-md mx-auto my-16 p-8 bg-slate-900 border border-slate-800 rounded-2xl text-center space-y-4">
+          <div className="max-w-md mx-auto my-12 sm:my-16 mx-4 sm:mx-auto p-6 sm:p-8 bg-slate-900 border border-slate-800 rounded-2xl text-center space-y-4">
             <h2 className="text-xl font-bold text-white">IIT Dharwad Authentication Required</h2>
-            <p className="text-xs text-slate-400">
-              Please log in with your official @iitdh.ac.in account to enter the student dashboard.
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Sign in or register with any official <code className="text-indigo-300">@iitdh.ac.in</code> email address to view full announcements, events, and notifications on this device.
             </p>
-            <button
-              onClick={() => handleOpenAuth('login')}
-              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold"
-            >
-              Sign In with Institute SSO
-            </button>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1">
+              <button
+                onClick={() => handleOpenAuth('login')}
+                className="w-full sm:w-auto px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition-colors"
+              >
+                Sign In (@iitdh.ac.in)
+              </button>
+              <button
+                onClick={() => handleOpenAuth('signup')}
+                className="w-full sm:w-auto px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition-colors"
+              >
+                New Student? Register
+              </button>
+            </div>
           </div>
         );
       }
@@ -233,6 +241,9 @@ function AppContent() {
         initialMode={authModalMode}
         onSuccessNavigate={(target, role) => {
           if (currentRoute.startsWith('/admin') && (role === 'super_admin' || role === 'club_admin')) {
+            return;
+          }
+          if (currentRoute.startsWith('/dashboard')) {
             return;
           }
           navigateTo(target);

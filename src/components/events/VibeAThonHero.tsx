@@ -136,7 +136,7 @@ export const VibeAThonHero: React.FC<VibeAThonHeroProps> = ({
         <div className="lg:col-span-5 flex justify-center">
           <div className="relative w-full max-w-sm rounded-xl overflow-hidden border border-indigo-500/40 shadow-2xl group">
             <img
-              src={event.poster_url || '/src/assets/images/vibeathon_banner_1794484938286.jpg'}
+              src={event.poster_url || '/images/vibeathon_banner_1794484938286.jpg'}
               alt="VIBE-A-THON Buildathon Poster"
               referrerPolicy="no-referrer"
               className="w-full h-auto aspect-video sm:aspect-square lg:aspect-[4/3] object-cover group-hover:scale-105 transition-transform duration-500"

@@ -127,8 +127,13 @@ class DataStore {
       });
       this.clubs = parsedClubs;
 
+      const normalizeEventAsset = (evt: EventItem): EventItem =>
+        evt.poster_url && evt.poster_url.startsWith('/src/assets/images/')
+          ? { ...evt, poster_url: evt.poster_url.replace('/src/assets/images/', '/images/') }
+          : evt;
+
       const storedEvents = localStorage.getItem(STORAGE_KEYS.EVENTS);
-      this.events = storedEvents ? JSON.parse(storedEvents) : [...INITIAL_EVENTS];
+      this.events = (storedEvents ? (JSON.parse(storedEvents) as EventItem[]) : [...INITIAL_EVENTS]).map(normalizeEventAsset);
 
       const storedAnnouncements = localStorage.getItem(STORAGE_KEYS.ANNOUNCEMENTS);
       this.announcements = storedAnnouncements ? JSON.parse(storedAnnouncements) : [...INITIAL_ANNOUNCEMENTS];
@@ -181,17 +186,31 @@ class DataStore {
         } catch {}
       }
 
-      window.addEventListener('focus', () => {
+      const handleResumeSync = () => {
+        void this.syncFromServer(true);
         if (this.isServerLive) {
           this.ensureRealtimeConnected();
-          void this.syncFromServer();
+        }
+      };
+
+      window.addEventListener('focus', handleResumeSync);
+      window.addEventListener('pageshow', handleResumeSync);
+      window.addEventListener('online', handleResumeSync);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          handleResumeSync();
         }
       });
 
-      window.addEventListener('online', () => {
-        this.ensureRealtimeConnected();
-        void this.syncFromServer(true);
-      });
+      // Lightweight fallback sync only when neither WebSocket nor SSE is actively open
+      setInterval(() => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+        const wsOpen = this.ws && this.ws.readyState === WebSocket.OPEN;
+        const sseOpen = this.sse && this.sse.readyState === EventSource.OPEN;
+        if (!wsOpen && !sseOpen) {
+          void this.syncFromServer(false);
+        }
+      }, 15000);
     }
   }
 
@@ -237,6 +256,13 @@ class DataStore {
       this.connectWebSocket();
     } else {
       await this.syncFromSupabase();
+      if (typeof window !== 'undefined') {
+        setTimeout(() => {
+          if (!this.isServerLive) {
+            void this.syncFromServer(true);
+          }
+        }, 3000);
+      }
     }
   }
 
@@ -330,8 +356,8 @@ class DataStore {
     if (this.wsReconnectTimer) return;
 
     this.wsReconnectAttempt += 1;
-    // Engage SSE stream fallback if WS cannot connect directly (e.g. strict HTTP proxy)
-    if (!this.hasWsEverOpened && this.wsReconnectAttempt >= 2) {
+    // Engage SSE stream fallback immediately if WS cannot connect (e.g. restrictive mobile/campus proxy)
+    if (!this.hasWsEverOpened && this.wsReconnectAttempt >= 1) {
       this.connectSseFallback();
     }
 
@@ -565,11 +591,18 @@ class DataStore {
       const rawText = await response.text();
       this.isServerLive = true;
       this.hasCompletedInitialServerSync = true;
+      this.ensureRealtimeConnected();
       if (!force && rawText === this.lastServerSnapshot) return;
       const data = JSON.parse(rawText);
       this.lastServerSnapshot = rawText;
       if (Array.isArray(data.clubs)) this.clubs = data.clubs;
-      if (Array.isArray(data.events)) this.events = data.events;
+      if (Array.isArray(data.events)) {
+        this.events = (data.events as EventItem[]).map((evt) =>
+          evt.poster_url && evt.poster_url.startsWith('/src/assets/images/')
+            ? { ...evt, poster_url: evt.poster_url.replace('/src/assets/images/', '/images/') }
+            : evt
+        );
+      }
       if (Array.isArray(data.announcements)) this.announcements = data.announcements;
       if (Array.isArray(data.clubAdmins)) this.clubAdmins = data.clubAdmins;
       if (Array.isArray(data.activityLogs)) this.activityLogs = data.activityLogs;

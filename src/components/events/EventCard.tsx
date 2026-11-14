@@ -22,7 +22,7 @@ export const EventCard: React.FC<EventCardProps> = ({
     if (!event.registration_deadline) return false;
     const deadlineMs = new Date(event.registration_deadline).getTime();
     if (isNaN(deadlineMs)) return false;
-    return deadlineMs < new Date('2026-11-12T04:00:00Z').getTime();
+    return deadlineMs < Math.max(Date.now(), new Date('2026-11-12T04:00:00Z').getTime());
   })();
 
   const formatDate = (dateStr: string) => formatCalendarDate(dateStr, 'short');
@@ -32,7 +32,7 @@ export const EventCard: React.FC<EventCardProps> = ({
       {/* Event Banner */}
       <div className="relative aspect-video w-full overflow-hidden bg-slate-950">
         <img
-          src={event.poster_url || '/src/assets/images/iitdh_campus_hero_1794484938737.jpg'}
+          src={event.poster_url || '/images/iitdh_campus_hero_1794484938737.jpg'}
           alt={event.title}
           referrerPolicy="no-referrer"
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"

@@ -45,7 +45,7 @@ export const EventModal: React.FC<EventModalProps> = ({
     if (!event.registration_deadline) return false;
     const deadlineMs = new Date(event.registration_deadline).getTime();
     if (isNaN(deadlineMs)) return false;
-    return deadlineMs < new Date('2026-11-12T04:00:00Z').getTime();
+    return deadlineMs < Math.max(Date.now(), new Date('2026-11-12T04:00:00Z').getTime());
   })();
 
   const formatDate = (dateStr: string) => formatCalendarDate(dateStr, 'long');
@@ -83,16 +83,16 @@ export const EventModal: React.FC<EventModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
     >
       <div 
-        className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl relative"
+        className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full max-h-[92dvh] overflow-y-auto shadow-2xl relative"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Poster Header */}
         <div className="relative aspect-video sm:aspect-[21/9] w-full overflow-hidden bg-slate-950">
           <img
-            src={event.poster_url || '/src/assets/images/iitdh_campus_hero_1794484938737.jpg'}
+            src={event.poster_url || '/images/iitdh_campus_hero_1794484938737.jpg'}
             alt={event.title}
             referrerPolicy="no-referrer"
             className="w-full h-full object-cover"

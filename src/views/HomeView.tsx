@@ -155,13 +155,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 The centralized gateway for IIT Dharwad technical societies, student competitions, workshops, and verified administrative circulars.
               </p>
 
-              <div className="flex flex-wrap items-center gap-4 pt-2">
+              <div className="flex flex-wrap items-center gap-3 pt-2">
                 <button
-                  onClick={() => onNavigate('/dashboard')}
-                  className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-medium text-xs sm:text-sm rounded-lg transition-colors shadow-lg shadow-indigo-950 flex items-center gap-2"
+                  onClick={() => (user ? onNavigate('/dashboard') : onOpenAuth())}
+                  className="px-5 sm:px-6 py-3 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-medium text-xs sm:text-sm rounded-lg transition-colors shadow-lg shadow-indigo-950 flex items-center gap-2"
                 >
                   <Compass className="w-4 h-4" />
-                  <span>{user ? 'Open Student Dashboard' : 'Student Access / Login'}</span>
+                  <span>{user ? 'Open Student Dashboard' : 'Sign In / Register (@iitdh.ac.in)'}</span>
                 </button>
 
                 <a
@@ -196,7 +196,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <div className="lg:col-span-5">
               <div className="relative rounded-2xl overflow-hidden border border-slate-800 shadow-2xl group">
                 <img
-                  src="/src/assets/images/iitdh_campus_hero_1794484938737.jpg"
+                  src="/images/iitdh_campus_hero_1794484938737.jpg"
                   alt="IIT Dharwad Permanent Campus Building"
                   referrerPolicy="no-referrer"
                   className="w-full h-auto aspect-video sm:aspect-[4/3] object-cover group-hover:scale-105 transition-transform duration-700"
@@ -279,8 +279,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 ))}
               </div>
 
-              {/* Club Dropdown Filter */}
-              <div className="flex items-center gap-2">
+              {/* Club Dropdown & Search Filter */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                 <select
                   value={selectedClubFilter}
                   onChange={(e) => setSelectedClubFilter(e.target.value)}
@@ -295,7 +295,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 </select>
 
                 {/* Search */}
-                <div className="relative min-w-[200px]">
+                <div className="relative w-full sm:w-56">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"

@@ -29,14 +29,14 @@ export const ClubModal: React.FC<ClubModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
     >
       <div 
-        className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto shadow-2xl relative"
+        className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full max-h-[90dvh] overflow-y-auto shadow-2xl relative"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-6 border-b border-slate-800 flex items-start justify-between gap-4">
+        <div className="p-4 sm:p-6 border-b border-slate-800 flex items-start justify-between gap-3 sm:gap-4">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-xl bg-slate-950 border border-slate-800 p-1 shrink-0 overflow-hidden">
               {club.logo_url ? (

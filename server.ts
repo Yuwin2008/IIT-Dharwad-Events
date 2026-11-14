@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { WebSocketServer, WebSocket } from 'ws';
+import { supabaseService } from './src/server/supabaseService.ts';
 import {
   SUPER_ADMIN_EMAIL,
   INITIAL_CLUBS,
@@ -40,6 +41,7 @@ interface AuthCredential {
 }
 
 interface PortalDatabase {
+  lastUpdatedAt?: string;
   clubs: Club[];
   events: EventItem[];
   announcements: AnnouncementItem[];
@@ -128,6 +130,12 @@ function loadDatabase(): PortalDatabase {
     };
     changed = true;
   }
+  for (const evt of db.events) {
+    if (typeof evt.poster_url === 'string' && evt.poster_url.startsWith('/src/assets/images/')) {
+      evt.poster_url = evt.poster_url.replace('/src/assets/images/', '/images/');
+      changed = true;
+    }
+  }
   if (changed) {
     saveDatabase(db);
   }
@@ -175,14 +183,94 @@ function resolveRoleForEmail(database: PortalDatabase, email: string) {
   };
 }
 
-function saveDatabase(db: PortalDatabase) {
+function saveDatabase(db: PortalDatabase, skipRemoteUpload: boolean = false) {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
+  db.lastUpdatedAt = new Date().toISOString();
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
+  if (!skipRemoteUpload) {
+    supabaseService.queuePortalSnapshotUpload(db);
+  }
 }
 
+const hadLocalDbFileAtBoot = fs.existsSync(DB_FILE);
 let db = loadDatabase();
+
+async function syncWithSupabaseOnStartup() {
+  if (!supabaseService.isConfigured()) return;
+
+  try {
+    const remote = await supabaseService.downloadPortalSnapshot();
+    const localTime = db.lastUpdatedAt ? new Date(db.lastUpdatedAt).getTime() : 0;
+    const remoteTime = remote?.lastUpdatedAt ? new Date(remote.lastUpdatedAt).getTime() : 0;
+
+    if (remote && (!hadLocalDbFileAtBoot || remoteTime > localTime)) {
+      db = {
+        ...db,
+        ...remote,
+        clubs: Array.isArray(remote.clubs) && remote.clubs.length > 0 ? remote.clubs : db.clubs,
+        events: Array.isArray(remote.events) ? remote.events : db.events,
+        announcements: Array.isArray(remote.announcements) ? remote.announcements : db.announcements,
+        clubAdmins: Array.isArray(remote.clubAdmins) ? remote.clubAdmins : db.clubAdmins,
+        activityLogs: Array.isArray(remote.activityLogs) ? remote.activityLogs : db.activityLogs,
+        profiles: Array.isArray(remote.profiles) ? remote.profiles : db.profiles,
+        authCredentials: {
+          ...(db.authCredentials || {}),
+          ...(remote.authCredentials || {}),
+        },
+        followedClubsByUser: remote.followedClubsByUser || db.followedClubsByUser || {},
+        bookmarkedEventsByUser: remote.bookmarkedEventsByUser || db.bookmarkedEventsByUser || {},
+        readNotificationsByUser: remote.readNotificationsByUser || db.readNotificationsByUser || {},
+      };
+      for (const initClub of INITIAL_CLUBS) {
+        if (!db.clubs.some((c) => c.id === initClub.id || c.name.toLowerCase() === initClub.name.toLowerCase())) {
+          db.clubs.push(initClub);
+        }
+      }
+      for (const evt of db.events) {
+        if (typeof evt.poster_url === 'string' && evt.poster_url.startsWith('/src/assets/images/')) {
+          evt.poster_url = evt.poster_url.replace('/src/assets/images/', '/images/');
+        }
+      }
+      saveDatabase(db, true);
+    } else {
+      await supabaseService.uploadPortalSnapshotNow(db);
+    }
+
+    const supaUsers = await supabaseService.confirmExistingIITDHUsers(isIITDHEmail);
+    let profilesUpdated = false;
+    for (const u of supaUsers) {
+      if (!u.email) continue;
+      const clean = u.email.trim().toLowerCase();
+      if (!isIITDHEmail(clean)) continue;
+      const existing = db.profiles.find((p) => p.email.toLowerCase() === clean);
+      const metaName =
+        typeof u.user_metadata?.full_name === 'string' && u.user_metadata.full_name.trim()
+          ? u.user_metadata.full_name.trim()
+          : clean.split('@')[0];
+      if (!existing) {
+        db.profiles.push({
+          id: u.id,
+          email: clean,
+          full_name: metaName,
+          created_at: u.created_at || new Date().toISOString(),
+        });
+        profilesUpdated = true;
+      } else if (existing.full_name === clean.split('@')[0] && metaName !== existing.full_name) {
+        existing.full_name = metaName;
+        profilesUpdated = true;
+      }
+    }
+    if (profilesUpdated) {
+      saveDatabase(db);
+    }
+
+    await supabaseService.checkPostgresTablesReady();
+  } catch (err) {
+    console.warn('Supabase startup sync warning:', err);
+  }
+}
 
 function isSuperAdminEmail(email?: string): boolean {
   if (!email) return false;
@@ -297,8 +385,13 @@ async function startServer() {
   });
 
   // Health check
-  app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, clubs: db.clubs.length, announcements: db.announcements.length });
+  app.get(['/api/health', '/api/portal/health'], (_req, res) => {
+    res.json({
+      ok: true,
+      clubs: db.clubs.length,
+      announcements: db.announcements.length,
+      supabaseConfigured: supabaseService.isConfigured(),
+    });
   });
 
   // Server-Sent Events real-time fallback stream
@@ -458,8 +551,8 @@ async function startServer() {
     res.status(201).json(newProfile);
   });
 
-  // --- AUTHENTICATION (Sign Up & Login) ---
-  app.post('/api/portal/auth/signup', (req, res) => {
+  // --- AUTHENTICATION (Sign Up, Login, Reset Password, JWKS Verify) ---
+  app.post('/api/portal/auth/signup', async (req, res) => {
     const { email, password, fullName } = req.body as {
       email?: string;
       password?: string;
@@ -482,7 +575,21 @@ async function startServer() {
     }
 
     db.authCredentials = db.authCredentials || {};
-    if (db.authCredentials[cleanEmail]) {
+    const existingRemote = await supabaseService.findAuthUserByEmail(cleanEmail);
+    if (db.authCredentials[cleanEmail] || existingRemote) {
+      res.status(409).json({
+        error: 'An account with this @iitdh.ac.in email is already registered. Please sign in with your password.',
+        code: 'ACCOUNT_EXISTS',
+      });
+      return;
+    }
+
+    const supaCreate = await supabaseService.createConfirmedUser({
+      email: cleanEmail,
+      password,
+      fullName: fullName.trim(),
+    });
+    if (supaCreate.alreadyExists) {
       res.status(409).json({
         error: 'An account with this @iitdh.ac.in email is already registered. Please sign in with your password.',
         code: 'ACCOUNT_EXISTS',
@@ -500,7 +607,7 @@ async function startServer() {
       profile.full_name = fullName.trim();
     } else {
       profile = {
-        id: crypto.randomUUID(),
+        id: supaCreate.user?.id || crypto.randomUUID(),
         email: cleanEmail,
         full_name: fullName.trim(),
         created_at: new Date().toISOString(),
@@ -513,7 +620,7 @@ async function startServer() {
     res.status(201).json({ profile, role, assignedClubIds });
   });
 
-  app.post('/api/portal/auth/login', (req, res) => {
+  app.post('/api/portal/auth/login', async (req, res) => {
     const { email, password } = req.body as { email?: string; password?: string };
     const cleanEmail = email?.trim().toLowerCase() || '';
     if (!isIITDHEmail(cleanEmail)) {
@@ -529,36 +636,80 @@ async function startServer() {
 
     db.authCredentials = db.authCredentials || {};
     const cred = db.authCredentials[cleanEmail];
-    if (!cred) {
-      res.status(401).json({
-        error: 'This @iitdh.ac.in account has not set a portal password yet. Switch to New Registration to create your account.',
-        code: 'ACCOUNT_NOT_REGISTERED',
-      });
-      return;
+    let verifiedLocally = Boolean(cred && verifyPassword(password, cred.passwordHash));
+    let supaAccessToken: string | undefined;
+    let supaUserId: string | undefined;
+    let supaFullName: string | undefined;
+
+    if (verifiedLocally) {
+      // Best-effort ensure user exists in Supabase Auth as confirmed
+      const profileName =
+        db.profiles.find((p) => p.email.toLowerCase() === cleanEmail)?.full_name ||
+        cleanEmail.split('@')[0];
+      void supabaseService
+        .createConfirmedUser({ email: cleanEmail, password, fullName: profileName })
+        .catch(() => {});
+    } else {
+      // Verify against Supabase Auth (handles users registered in Supabase Auth across devices)
+      const supaLogin = await supabaseService.verifyPasswordLogin(cleanEmail, password);
+      if (supaLogin.user) {
+        if (supaLogin.accessToken) {
+          const claims = await supabaseService.verifyJwt(supaLogin.accessToken);
+          if (claims) {
+            supaAccessToken = supaLogin.accessToken;
+          }
+        }
+        verifiedLocally = true;
+        supaUserId = supaLogin.user.id;
+        const metaName = supaLogin.user.user_metadata?.full_name;
+        if (typeof metaName === 'string' && metaName.trim()) {
+          supaFullName = metaName.trim();
+        }
+        db.authCredentials[cleanEmail] = {
+          passwordHash: hashPassword(password),
+          updatedAt: new Date().toISOString(),
+        };
+      }
     }
 
-    if (!verifyPassword(password, cred.passwordHash)) {
+    if (!verifiedLocally) {
+      const existingRemote = await supabaseService.findAuthUserByEmail(cleanEmail);
+      if (!cred && !existingRemote) {
+        res.status(401).json({
+          error: 'This @iitdh.ac.in account has not set a portal password yet. Switch to New Registration to create your account.',
+          code: 'ACCOUNT_NOT_REGISTERED',
+        });
+        return;
+      }
       res.status(401).json({ error: 'Invalid email or password.' });
       return;
     }
 
     let profile = db.profiles.find((p) => p.email.toLowerCase() === cleanEmail);
+    let profileChanged = false;
     if (!profile) {
       profile = {
-        id: crypto.randomUUID(),
+        id: supaUserId || crypto.randomUUID(),
         email: cleanEmail,
-        full_name: cleanEmail.split('@')[0],
+        full_name: supaFullName || cleanEmail.split('@')[0],
         created_at: new Date().toISOString(),
       };
       db.profiles.push(profile);
+      profileChanged = true;
+    } else if (supaFullName && profile.full_name === cleanEmail.split('@')[0]) {
+      profile.full_name = supaFullName;
+      profileChanged = true;
+    }
+
+    if (profileChanged || supaUserId) {
       saveDatabase(db);
     }
 
     const { role, assignedClubIds } = resolveRoleForEmail(db, cleanEmail);
-    res.json({ profile, role, assignedClubIds });
+    res.json({ profile, role, assignedClubIds, accessToken: supaAccessToken });
   });
 
-  app.post('/api/portal/auth/reset-password', (req, res) => {
+  app.post('/api/portal/auth/reset-password', async (req, res) => {
     const { email, newPassword } = req.body as { email?: string; newPassword?: string };
     const cleanEmail = email?.trim().toLowerCase() || '';
     if (!isIITDHEmail(cleanEmail)) {
@@ -572,16 +723,22 @@ async function startServer() {
       return;
     }
 
+    let profile = db.profiles.find((p) => p.email.toLowerCase() === cleanEmail);
+    const updatedSupa = await supabaseService.updateOrCreatePassword(
+      cleanEmail,
+      newPassword,
+      profile?.full_name
+    );
+
     db.authCredentials = db.authCredentials || {};
     db.authCredentials[cleanEmail] = {
       passwordHash: hashPassword(newPassword),
       updatedAt: new Date().toISOString(),
     };
 
-    let profile = db.profiles.find((p) => p.email.toLowerCase() === cleanEmail);
     if (!profile) {
       profile = {
-        id: crypto.randomUUID(),
+        id: updatedSupa.user?.id || crypto.randomUUID(),
         email: cleanEmail,
         full_name: cleanEmail.split('@')[0],
         created_at: new Date().toISOString(),
@@ -592,6 +749,24 @@ async function startServer() {
     saveDatabase(db);
     const { role, assignedClubIds } = resolveRoleForEmail(db, cleanEmail);
     res.json({ success: true, profile, role, assignedClubIds });
+  });
+
+  app.post('/api/portal/auth/verify-token', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    const bearer =
+      authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
+    const token = bearer || (req.body as { token?: string })?.token;
+    if (!token) {
+      res.status(400).json({ valid: false, error: 'JWT token is required.' });
+      return;
+    }
+    const claims = await supabaseService.verifyJwt(token);
+    if (!claims || !claims.email || !isIITDHEmail(claims.email)) {
+      res.status(401).json({ valid: false, error: 'Invalid or expired Supabase token.' });
+      return;
+    }
+    const { role, assignedClubIds } = resolveRoleForEmail(db, claims.email);
+    res.json({ valid: true, claims, role, assignedClubIds });
   });
 
   // --- CLUBS CRUD (Super Admin only) ---
@@ -1090,6 +1265,8 @@ async function startServer() {
   httpServer.on('close', () => {
     clearInterval(wsHeartbeat);
   });
+
+  await syncWithSupabaseOnStartup();
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`IIT Dharwad Campus Events Portal server + WebSocket listening on http://0.0.0.0:${PORT}`);

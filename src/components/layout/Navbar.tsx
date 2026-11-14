@@ -14,6 +14,7 @@ import {
   Smartphone,
   Monitor
 } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface NavbarProps {
   currentRoute: string;
@@ -123,6 +124,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Zone 3: Viewport & Theme Toggles & Primary Action / User profile */}
         <div className="hidden md:flex items-center gap-2 shrink-0">
+          <PWAInstallButton />
           <button
             type="button"
             onClick={toggleViewportMode}
@@ -198,6 +200,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Mobile menu trigger */}
         <div className="flex md:hidden items-center gap-1.5">
+          <PWAInstallButton compact />
           <button
             type="button"
             onClick={toggleViewportMode}

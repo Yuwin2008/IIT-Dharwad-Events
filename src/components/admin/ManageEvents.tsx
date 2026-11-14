@@ -53,7 +53,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
   const [regUrl, setRegUrl] = useState('');
   const [regDeadlineDate, setRegDeadlineDate] = useState('');
   const [regDeadlineTime, setRegDeadlineTime] = useState('23:59');
-  const [posterUrl, setPosterUrl] = useState('/src/assets/images/robotics_club_showcase_1794484939484.jpg');
+  const [posterUrl, setPosterUrl] = useState('/images/robotics_club_showcase_1794484939484.jpg');
   const [status, setStatus] = useState<EventStatus>('Published');
 
   const [errorMessage, setErrorMessage] = useState('');
@@ -81,7 +81,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
     setRegUrl('');
     setRegDeadlineDate('');
     setRegDeadlineTime('23:59');
-    setPosterUrl('/src/assets/images/robotics_club_showcase_1794484939484.jpg');
+    setPosterUrl('/images/robotics_club_showcase_1794484939484.jpg');
     setStatus('Published');
     setErrorMessage('');
   };
@@ -326,6 +326,10 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
               >
                 <option value="Technical / Buildathon">Technical / Buildathon</option>
                 <option value="Technical / Workshop">Technical / Workshop</option>
+                <option value="Workshops">Workshops</option>
+                <option value="Competitions">Competitions</option>
+                <option value="Guest Lectures">Guest Lectures</option>
+                <option value="Social">Social</option>
                 <option value="Technical / Seminar">Technical / Seminar</option>
                 <option value="Technical / Hackathon">Technical / Hackathon</option>
                 <option value="Cultural">Cultural</option>
@@ -439,7 +443,7 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
                 type="text"
                 value={posterUrl}
                 onChange={(e) => setPosterUrl(e.target.value)}
-                placeholder="/src/assets/images/..."
+                placeholder="/images/..."
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-indigo-500"
               />
             </div>
