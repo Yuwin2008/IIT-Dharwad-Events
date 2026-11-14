@@ -93,6 +93,24 @@ class DataStore {
   private isServerLive: boolean = false;
   private version: number = 0;
   private listeners: Set<() => void> = new Set();
+  private ws: WebSocket | null = null;
+  private sse: EventSource | null = null;
+  private wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private wsHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private wsReconnectAttempt: number = 0;
+  private hasWsEverOpened: boolean = false;
+  private hasCompletedInitialServerSync: boolean = false;
+  private broadcastChannel: BroadcastChannel | null = null;
+  private latestRealtimeArrival: {
+    id: string;
+    kind: 'event' | 'announcement';
+    title: string;
+    clubName: string;
+    clubId?: string | null;
+    event?: EventItem;
+    announcement?: AnnouncementItem;
+    arrivedAt: number;
+  } | null = null;
 
   constructor() {
     this.init();
@@ -148,17 +166,32 @@ class DataStore {
       this.readNotificationsByUser = {};
     }
 
-    // Sync from authoritative shared backend first; only fall back to Supabase if Express API is unavailable
+    // Sync initial state from authoritative server and establish persistent real-time socket
     void this.initializeSync();
 
     if (typeof window !== 'undefined') {
-      // Keep all student sessions in sync automatically
+      if (typeof BroadcastChannel !== 'undefined') {
+        try {
+          this.broadcastChannel = new BroadcastChannel('iitdh_portal_realtime');
+          this.broadcastChannel.onmessage = (ev) => {
+            if (ev?.data && typeof ev.data.type === 'string') {
+              this.applyRealtimeMessage(ev.data);
+            }
+          };
+        } catch {}
+      }
+
       window.addEventListener('focus', () => {
-        this.syncFromServer();
+        if (this.isServerLive) {
+          this.ensureRealtimeConnected();
+          void this.syncFromServer();
+        }
       });
-      setInterval(() => {
-        this.syncFromServer();
-      }, 5000);
+
+      window.addEventListener('online', () => {
+        this.ensureRealtimeConnected();
+        void this.syncFromServer(true);
+      });
     }
   }
 
@@ -200,8 +233,323 @@ class DataStore {
 
   private async initializeSync() {
     await this.syncFromServer();
-    if (!this.isServerLive) {
+    if (this.isServerLive) {
+      this.connectWebSocket();
+    } else {
       await this.syncFromSupabase();
+    }
+  }
+
+  public getLatestRealtimeArrival() {
+    return this.latestRealtimeArrival;
+  }
+
+  public clearLatestRealtimeArrival() {
+    this.latestRealtimeArrival = null;
+    this.notify();
+  }
+
+  private ensureRealtimeConnected() {
+    if (typeof window === 'undefined' || !this.isServerLive) return;
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    this.connectWebSocket();
+  }
+
+  private connectWebSocket() {
+    if (typeof window === 'undefined' || typeof WebSocket === 'undefined') return;
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      const socket = new WebSocket(wsUrl);
+      this.ws = socket;
+
+      socket.onopen = () => {
+        const wasReconnect = this.hasWsEverOpened;
+        this.hasWsEverOpened = true;
+        this.wsReconnectAttempt = 0;
+        this.isServerLive = true;
+
+        // Close SSE fallback if WebSocket is active
+        if (this.sse) {
+          this.sse.close();
+          this.sse = null;
+        }
+
+        if (this.wsHeartbeatTimer) {
+          clearInterval(this.wsHeartbeatTimer);
+        }
+        this.wsHeartbeatTimer = setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) {
+            try {
+              socket.send(JSON.stringify({ type: 'ping' }));
+            } catch {}
+          }
+        }, 25000);
+
+        if (wasReconnect) {
+          void this.syncFromServer(true);
+        }
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data as string);
+          if (msg && typeof msg.type === 'string') {
+            this.applyRealtimeMessage(msg);
+          }
+        } catch {}
+      };
+
+      socket.onclose = () => {
+        if (this.ws === socket) {
+          this.ws = null;
+        }
+        if (this.wsHeartbeatTimer) {
+          clearInterval(this.wsHeartbeatTimer);
+          this.wsHeartbeatTimer = null;
+        }
+        this.scheduleWebSocketReconnect();
+      };
+
+      socket.onerror = () => {
+        // Error leads to onclose which handles backoff & SSE fallback
+      };
+    } catch {
+      this.scheduleWebSocketReconnect();
+    }
+  }
+
+  private scheduleWebSocketReconnect() {
+    if (typeof window === 'undefined' || !this.isServerLive) return;
+    if (this.wsReconnectTimer) return;
+
+    this.wsReconnectAttempt += 1;
+    // Engage SSE stream fallback if WS cannot connect directly (e.g. strict HTTP proxy)
+    if (!this.hasWsEverOpened && this.wsReconnectAttempt >= 2) {
+      this.connectSseFallback();
+    }
+
+    const delayMs = Math.min(15000, 1000 * Math.pow(2, Math.min(this.wsReconnectAttempt - 1, 4)));
+    this.wsReconnectTimer = setTimeout(() => {
+      this.wsReconnectTimer = null;
+      this.connectWebSocket();
+    }, delayMs);
+  }
+
+  private connectSseFallback() {
+    if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
+    if (this.sse) return;
+
+    try {
+      const es = new EventSource('/api/portal/stream');
+      this.sse = es;
+      es.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg && typeof msg.type === 'string') {
+            this.applyRealtimeMessage(msg);
+          }
+        } catch {}
+      };
+      es.onerror = () => {
+        // Browser EventSource handles automatic reconnect
+      };
+    } catch {}
+  }
+
+  private upsertEventLocal(evt: EventItem): boolean {
+    const idx = this.events.findIndex((e) => e.id === evt.id);
+    if (idx >= 0) {
+      this.events[idx] = evt;
+      return false;
+    }
+    this.events.unshift(evt);
+    return true;
+  }
+
+  private upsertAnnouncementLocal(ann: AnnouncementItem): boolean {
+    const idx = this.announcements.findIndex((a) => a.id === ann.id);
+    if (idx >= 0) {
+      this.announcements[idx] = ann;
+      return false;
+    }
+    this.announcements.unshift(ann);
+    return true;
+  }
+
+  private upsertClubLocal(club: Club): boolean {
+    const idx = this.clubs.findIndex((c) => c.id === club.id);
+    if (idx >= 0) {
+      this.clubs[idx] = club;
+      return false;
+    }
+    this.clubs.unshift(club);
+    return true;
+  }
+
+  private upsertClubAdminLocal(assignment: ClubAdminAssignment): boolean {
+    const idx = this.clubAdmins.findIndex((ca) => ca.id === assignment.id);
+    if (idx >= 0) {
+      this.clubAdmins[idx] = assignment;
+      return false;
+    }
+    this.clubAdmins.unshift(assignment);
+    return true;
+  }
+
+  private applyRealtimeMessage(msg: { type: string; payload?: any }) {
+    if (!msg || !msg.type || msg.type === 'pong') return;
+
+    switch (msg.type) {
+      case 'state:init': {
+        const data = msg.payload || {};
+        if (Array.isArray(data.clubs)) this.clubs = data.clubs;
+        if (Array.isArray(data.events)) this.events = data.events;
+        if (Array.isArray(data.announcements)) this.announcements = data.announcements;
+        if (Array.isArray(data.clubAdmins)) this.clubAdmins = data.clubAdmins;
+        if (Array.isArray(data.activityLogs)) this.activityLogs = data.activityLogs;
+        if (Array.isArray(data.profiles)) this.profiles = data.profiles;
+        this.hasCompletedInitialServerSync = true;
+        this.lastServerSnapshot = '';
+        this.save();
+        return;
+      }
+
+      case 'event:created': {
+        const evt = msg.payload as EventItem;
+        if (!evt?.id) return;
+        const inserted = this.upsertEventLocal(evt);
+        this.lastServerSnapshot = '';
+        if (inserted && evt.status !== 'Draft' && this.hasCompletedInitialServerSync) {
+          const club = this.getClubById(evt.club_id);
+          this.latestRealtimeArrival = {
+            id: `evt:${evt.id}`,
+            kind: 'event',
+            title: evt.title,
+            clubName: club?.name || 'Campus Club',
+            clubId: evt.club_id,
+            event: { ...evt, club },
+            arrivedAt: Date.now(),
+          };
+        }
+        this.save();
+        return;
+      }
+
+      case 'event:updated': {
+        const evt = msg.payload as EventItem;
+        if (!evt?.id) return;
+        this.upsertEventLocal(evt);
+        this.lastServerSnapshot = '';
+        this.save();
+        return;
+      }
+
+      case 'event:deleted': {
+        const id = msg.payload?.id as string | undefined;
+        if (!id || !this.events.some((e) => e.id === id)) return;
+        this.events = this.events.filter((e) => e.id !== id);
+        this.lastServerSnapshot = '';
+        this.save();
+        return;
+      }
+
+      case 'announcement:created': {
+        const ann = msg.payload as AnnouncementItem;
+        if (!ann?.id) return;
+        const inserted = this.upsertAnnouncementLocal(ann);
+        this.lastServerSnapshot = '';
+        if (inserted && ann.status !== 'Draft' && this.hasCompletedInitialServerSync) {
+          const isCampusWide = ann.type === 'Campus-wide Announcement' || !ann.club_id;
+          const club = ann.club_id ? this.getClubById(ann.club_id) : undefined;
+          this.latestRealtimeArrival = {
+            id: `ann:${ann.id}`,
+            kind: 'announcement',
+            title: ann.title,
+            clubName: isCampusWide ? 'IIT Dharwad (Campus-wide)' : club?.name || 'Campus Club',
+            clubId: ann.club_id,
+            announcement: { ...ann, club },
+            arrivedAt: Date.now(),
+          };
+        }
+        this.save();
+        return;
+      }
+
+      case 'announcement:updated': {
+        const ann = msg.payload as AnnouncementItem;
+        if (!ann?.id) return;
+        this.upsertAnnouncementLocal(ann);
+        this.lastServerSnapshot = '';
+        this.save();
+        return;
+      }
+
+      case 'announcement:deleted': {
+        const id = msg.payload?.id as string | undefined;
+        if (!id || !this.announcements.some((a) => a.id === id)) return;
+        this.announcements = this.announcements.filter((a) => a.id !== id);
+        this.lastServerSnapshot = '';
+        this.save();
+        return;
+      }
+
+      case 'club:created':
+      case 'club:updated': {
+        const club = msg.payload as Club;
+        if (!club?.id) return;
+        this.upsertClubLocal(club);
+        this.lastServerSnapshot = '';
+        this.save();
+        return;
+      }
+
+      case 'club:deleted': {
+        const id = msg.payload?.id as string | undefined;
+        if (!id || !this.clubs.some((c) => c.id === id)) return;
+        this.clubs = this.clubs.filter((c) => c.id !== id);
+        this.events = this.events.filter((e) => e.club_id !== id);
+        this.announcements = this.announcements.filter((a) => a.club_id !== id);
+        this.clubAdmins = this.clubAdmins.filter((ca) => ca.club_id !== id);
+        this.lastServerSnapshot = '';
+        this.save();
+        return;
+      }
+
+      case 'club_admin:assigned': {
+        const assignment = msg.payload as ClubAdminAssignment;
+        if (!assignment?.id) return;
+        this.upsertClubAdminLocal(assignment);
+        this.lastServerSnapshot = '';
+        this.save();
+        return;
+      }
+
+      case 'club_admin:removed': {
+        const id = msg.payload?.id as string | undefined;
+        if (!id || !this.clubAdmins.some((ca) => ca.id === id)) return;
+        this.clubAdmins = this.clubAdmins.filter((ca) => ca.id !== id);
+        this.lastServerSnapshot = '';
+        this.save();
+        return;
+      }
+
+      case 'activity:created': {
+        const log = msg.payload as ActivityLogItem;
+        if (!log?.id || this.activityLogs.some((l) => l.id === log.id)) return;
+        this.activityLogs.unshift(log);
+        if (this.activityLogs.length > 200) {
+          this.activityLogs = this.activityLogs.slice(0, 200);
+        }
+        this.save();
+        return;
+      }
     }
   }
 
@@ -216,6 +564,7 @@ class DataStore {
       if (!contentType.includes('application/json')) return;
       const rawText = await response.text();
       this.isServerLive = true;
+      this.hasCompletedInitialServerSync = true;
       if (!force && rawText === this.lastServerSnapshot) return;
       const data = JSON.parse(rawText);
       this.lastServerSnapshot = rawText;
@@ -343,7 +692,8 @@ class DataStore {
       });
       if (res.ok) {
         const created = (await res.json()) as Club;
-        await this.syncFromServer();
+        this.upsertClubLocal(created);
+        this.save();
         return created;
       }
       const apiErr = await extractApiRejection(res);
@@ -381,7 +731,8 @@ class DataStore {
       });
       if (res.ok) {
         const updated = (await res.json()) as Club;
-        await this.syncFromServer();
+        this.upsertClubLocal(updated);
+        this.save();
         return updated;
       }
       const apiErr = await extractApiRejection(res);
@@ -413,7 +764,11 @@ class DataStore {
         body: JSON.stringify({ actorEmail }),
       });
       if (res.ok) {
-        await this.syncFromServer();
+        this.clubs = this.clubs.filter((c) => c.id !== id);
+        this.events = this.events.filter((e) => e.club_id !== id);
+        this.announcements = this.announcements.filter((a) => a.club_id !== id);
+        this.clubAdmins = this.clubAdmins.filter((ca) => ca.club_id !== id);
+        this.save();
         return true;
       }
       const apiErr = await extractApiRejection(res);
@@ -503,7 +858,9 @@ class DataStore {
       });
       if (res.ok) {
         const created = (await res.json()) as EventItem;
-        await this.syncFromServer(true);
+        this.upsertEventLocal(created);
+        this.save();
+        this.broadcastChannel?.postMessage({ type: 'event:created', payload: created });
         return { ...created, club: this.getClubById(created.club_id) };
       }
       const apiErr = await extractApiRejection(res);
@@ -570,7 +927,9 @@ class DataStore {
       });
       if (res.ok) {
         const updated = (await res.json()) as EventItem;
-        await this.syncFromServer(true);
+        this.upsertEventLocal(updated);
+        this.save();
+        this.broadcastChannel?.postMessage({ type: 'event:updated', payload: updated });
         return { ...updated, club: this.getClubById(updated.club_id) };
       }
       const apiErr = await extractApiRejection(res);
@@ -608,7 +967,9 @@ class DataStore {
         body: JSON.stringify({ actorEmail }),
       });
       if (res.ok) {
-        await this.syncFromServer();
+        this.events = this.events.filter((e) => e.id !== id);
+        this.save();
+        this.broadcastChannel?.postMessage({ type: 'event:deleted', payload: { id } });
         return true;
       }
       const apiErr = await extractApiRejection(res);
@@ -669,7 +1030,9 @@ class DataStore {
       });
       if (res.ok) {
         const created = (await res.json()) as AnnouncementItem;
-        await this.syncFromServer(true);
+        this.upsertAnnouncementLocal(created);
+        this.save();
+        this.broadcastChannel?.postMessage({ type: 'announcement:created', payload: created });
         return { ...created, club: created.club_id ? this.getClubById(created.club_id) : undefined };
       }
       const apiErr = await extractApiRejection(res);
@@ -717,7 +1080,9 @@ class DataStore {
       });
       if (res.ok) {
         const updated = (await res.json()) as AnnouncementItem;
-        await this.syncFromServer(true);
+        this.upsertAnnouncementLocal(updated);
+        this.save();
+        this.broadcastChannel?.postMessage({ type: 'announcement:updated', payload: updated });
         return { ...updated, club: updated.club_id ? this.getClubById(updated.club_id) : undefined };
       }
       const apiErr = await extractApiRejection(res);
@@ -758,7 +1123,9 @@ class DataStore {
         body: JSON.stringify({ actorEmail }),
       });
       if (res.ok) {
-        await this.syncFromServer();
+        this.announcements = this.announcements.filter((a) => a.id !== id);
+        this.save();
+        this.broadcastChannel?.postMessage({ type: 'announcement:deleted', payload: { id } });
         return true;
       }
       const apiErr = await extractApiRejection(res);
@@ -810,7 +1177,8 @@ class DataStore {
       });
       if (res.ok) {
         const created = (await res.json()) as ClubAdminAssignment;
-        await this.syncFromServer();
+        this.upsertClubAdminLocal(created);
+        this.save();
         return created;
       }
       const apiErr = await extractApiRejection(res);
@@ -858,7 +1226,8 @@ class DataStore {
         body: JSON.stringify({ actorEmail }),
       });
       if (res.ok) {
-        await this.syncFromServer();
+        this.clubAdmins = this.clubAdmins.filter((ca) => ca.id !== id);
+        this.save();
         return true;
       }
       const apiErr = await extractApiRejection(res);

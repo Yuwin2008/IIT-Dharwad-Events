@@ -1,9 +1,11 @@
 import express from 'express';
+import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { WebSocketServer, WebSocket } from 'ws';
 import {
   SUPER_ADMIN_EMAIL,
   INITIAL_CLUBS,
@@ -210,12 +212,63 @@ function isAnyAdmin(email?: string): boolean {
   return db.clubAdmins.some((ca) => ca.user_email?.toLowerCase() === clean);
 }
 
+type RealtimeServerMessage =
+  | {
+      type: 'state:init';
+      payload: {
+        clubs: Club[];
+        events: EventItem[];
+        announcements: AnnouncementItem[];
+        clubAdmins: ClubAdminAssignment[];
+        activityLogs: ActivityLogItem[];
+        profiles: Profile[];
+      };
+    }
+  | { type: 'event:created'; payload: EventItem }
+  | { type: 'event:updated'; payload: EventItem }
+  | { type: 'event:deleted'; payload: { id: string } }
+  | { type: 'announcement:created'; payload: AnnouncementItem }
+  | { type: 'announcement:updated'; payload: AnnouncementItem }
+  | { type: 'announcement:deleted'; payload: { id: string } }
+  | { type: 'club:created'; payload: Club }
+  | { type: 'club:updated'; payload: Club }
+  | { type: 'club:deleted'; payload: { id: string } }
+  | { type: 'club_admin:assigned'; payload: ClubAdminAssignment }
+  | { type: 'club_admin:removed'; payload: { id: string } }
+  | { type: 'activity:created'; payload: ActivityLogItem }
+  | { type: 'pong' };
+
+const wsClients = new Set<WebSocket>();
+const sseClients = new Set<express.Response>();
+
+function broadcastRealtime(message: RealtimeServerMessage) {
+  const serialized = JSON.stringify(message);
+
+  for (const client of wsClients) {
+    if (client.readyState === WebSocket.OPEN) {
+      try {
+        client.send(serialized);
+      } catch {
+        wsClients.delete(client);
+      }
+    }
+  }
+
+  for (const res of sseClients) {
+    try {
+      res.write(`data: ${serialized}\n\n`);
+    } catch {
+      sseClients.delete(res);
+    }
+  }
+}
+
 function appendActivityLog(
   actorEmail: string,
   action: string,
   targetType: 'event' | 'announcement' | 'club' | 'admin',
   targetId?: string
-) {
+): ActivityLogItem {
   const newLog: ActivityLogItem = {
     id: crypto.randomUUID(),
     actor_id: actorEmail,
@@ -229,6 +282,7 @@ function appendActivityLog(
   if (db.activityLogs.length > 200) {
     db.activityLogs = db.activityLogs.slice(0, 200);
   }
+  return newLog;
 }
 
 async function startServer() {
@@ -245,6 +299,43 @@ async function startServer() {
   // Health check
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, clubs: db.clubs.length, announcements: db.announcements.length });
+  });
+
+  // Server-Sent Events real-time fallback stream
+  app.get('/api/portal/stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    const initMsg: RealtimeServerMessage = {
+      type: 'state:init',
+      payload: {
+        clubs: db.clubs,
+        events: db.events,
+        announcements: db.announcements,
+        clubAdmins: db.clubAdmins,
+        activityLogs: db.activityLogs,
+        profiles: db.profiles,
+      },
+    };
+    res.write(`data: ${JSON.stringify(initMsg)}\n\n`);
+    sseClients.add(res);
+
+    const keepAlive = setInterval(() => {
+      try {
+        res.write(': keepalive\n\n');
+      } catch {
+        clearInterval(keepAlive);
+        sseClients.delete(res);
+      }
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(keepAlive);
+      sseClients.delete(res);
+    });
   });
 
   // Get complete synchronized portal state
@@ -517,8 +608,10 @@ async function startServer() {
       created_at: new Date().toISOString(),
     };
     db.clubs.unshift(newClub);
-    appendActivityLog(actorEmail!, `Created club "${newClub.name}"`, 'club', newClub.id);
+    const log = appendActivityLog(actorEmail!, `Created club "${newClub.name}"`, 'club', newClub.id);
     saveDatabase(db);
+    broadcastRealtime({ type: 'club:created', payload: newClub });
+    broadcastRealtime({ type: 'activity:created', payload: log });
     res.status(201).json(newClub);
   });
 
@@ -538,8 +631,10 @@ async function startServer() {
 
     const updated = { ...db.clubs[index], ...updates };
     db.clubs[index] = updated;
-    appendActivityLog(actorEmail!, `Updated club details for "${updated.name}"`, 'club', id);
+    const log = appendActivityLog(actorEmail!, `Updated club details for "${updated.name}"`, 'club', id);
     saveDatabase(db);
+    broadcastRealtime({ type: 'club:updated', payload: updated });
+    broadcastRealtime({ type: 'activity:created', payload: log });
     res.json(updated);
   });
 
@@ -557,8 +652,10 @@ async function startServer() {
     db.events = db.events.filter((e) => e.club_id !== id);
     db.announcements = db.announcements.filter((a) => a.club_id !== id);
     db.clubAdmins = db.clubAdmins.filter((ca) => ca.club_id !== id);
-    appendActivityLog(actorEmail!, `Deleted club "${clubName}" and related records`, 'club', id);
+    const log = appendActivityLog(actorEmail!, `Deleted club "${clubName}" and related records`, 'club', id);
     saveDatabase(db);
+    broadcastRealtime({ type: 'club:deleted', payload: { id } });
+    broadcastRealtime({ type: 'activity:created', payload: log });
     res.json({ success: true });
   });
 
@@ -596,8 +693,10 @@ async function startServer() {
       updated_at: new Date().toISOString(),
     };
     db.events.unshift(newEvent);
-    appendActivityLog(actorEmail!, `Created event "${newEvent.title}"`, 'event', newEvent.id);
+    const log = appendActivityLog(actorEmail!, `Created event "${newEvent.title}"`, 'event', newEvent.id);
     saveDatabase(db);
+    broadcastRealtime({ type: 'event:created', payload: newEvent });
+    broadcastRealtime({ type: 'activity:created', payload: log });
     res.status(201).json(newEvent);
   });
 
@@ -641,8 +740,10 @@ async function startServer() {
       updated_at: new Date().toISOString(),
     };
     db.events[index] = updated;
-    appendActivityLog(actorEmail!, `Updated event "${updated.title}"`, 'event', id);
+    const log = appendActivityLog(actorEmail!, `Updated event "${updated.title}"`, 'event', id);
     saveDatabase(db);
+    broadcastRealtime({ type: 'event:updated', payload: updated });
+    broadcastRealtime({ type: 'activity:created', payload: log });
     res.json(updated);
   });
 
@@ -660,8 +761,10 @@ async function startServer() {
     }
 
     db.events = db.events.filter((e) => e.id !== id);
-    appendActivityLog(actorEmail!, `Deleted event "${existing.title}"`, 'event', id);
+    const log = appendActivityLog(actorEmail!, `Deleted event "${existing.title}"`, 'event', id);
     saveDatabase(db);
+    broadcastRealtime({ type: 'event:deleted', payload: { id } });
+    broadcastRealtime({ type: 'activity:created', payload: log });
     res.json({ success: true });
   });
 
@@ -698,8 +801,10 @@ async function startServer() {
       published_at: announcement.published_at || new Date().toISOString(),
     };
     db.announcements.unshift(newAnnouncement);
-    appendActivityLog(actorEmail!, `Published announcement "${newAnnouncement.title}"`, 'announcement', newAnnouncement.id);
+    const log = appendActivityLog(actorEmail!, `Published announcement "${newAnnouncement.title}"`, 'announcement', newAnnouncement.id);
     saveDatabase(db);
+    broadcastRealtime({ type: 'announcement:created', payload: newAnnouncement });
+    broadcastRealtime({ type: 'activity:created', payload: log });
     res.status(201).json(newAnnouncement);
   });
 
@@ -740,8 +845,10 @@ async function startServer() {
       updated_at: new Date().toISOString(),
     };
     db.announcements[index] = updated;
-    appendActivityLog(actorEmail!, `Updated announcement "${updated.title}"`, 'announcement', id);
+    const log = appendActivityLog(actorEmail!, `Updated announcement "${updated.title}"`, 'announcement', id);
     saveDatabase(db);
+    broadcastRealtime({ type: 'announcement:updated', payload: updated });
+    broadcastRealtime({ type: 'activity:created', payload: log });
     res.json(updated);
   });
 
@@ -765,8 +872,10 @@ async function startServer() {
     }
 
     db.announcements = db.announcements.filter((a) => a.id !== id);
-    appendActivityLog(actorEmail!, `Deleted announcement "${existing.title}"`, 'announcement', id);
+    const log = appendActivityLog(actorEmail!, `Deleted announcement "${existing.title}"`, 'announcement', id);
     saveDatabase(db);
+    broadcastRealtime({ type: 'announcement:deleted', payload: { id } });
+    broadcastRealtime({ type: 'activity:created', payload: log });
     res.json({ success: true });
   });
 
@@ -816,8 +925,10 @@ async function startServer() {
       created_at: new Date().toISOString(),
     };
     db.clubAdmins.unshift(newAssignment);
-    appendActivityLog(actorEmail!, `Assigned ${cleanEmail} as admin for ${club.name}`, 'admin', newAssignment.id);
+    const log = appendActivityLog(actorEmail!, `Assigned ${cleanEmail} as admin for ${club.name}`, 'admin', newAssignment.id);
     saveDatabase(db);
+    broadcastRealtime({ type: 'club_admin:assigned', payload: newAssignment });
+    broadcastRealtime({ type: 'activity:created', payload: log });
     res.status(201).json(newAssignment);
   });
 
@@ -836,13 +947,15 @@ async function startServer() {
     }
 
     db.clubAdmins = db.clubAdmins.filter((ca) => ca.id !== id);
-    appendActivityLog(
+    const log = appendActivityLog(
       actorEmail!,
       `Removed ${existing.user_email || 'User'} from ${existing.club_name || 'Club'} admin privileges`,
       'admin',
       id
     );
     saveDatabase(db);
+    broadcastRealtime({ type: 'club_admin:removed', payload: { id } });
+    broadcastRealtime({ type: 'activity:created', payload: log });
     res.json({ success: true });
   });
 
@@ -859,8 +972,9 @@ async function startServer() {
       return;
     }
     if (action && targetType) {
-      appendActivityLog(actorEmail!, action, targetType, targetId);
+      const log = appendActivityLog(actorEmail!, action, targetType, targetId);
       saveDatabase(db);
+      broadcastRealtime({ type: 'activity:created', payload: log });
     }
     res.json({ ok: true });
   });
@@ -886,8 +1000,99 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`IIT Dharwad Campus Events Portal server listening on http://0.0.0.0:${PORT}`);
+  const httpServer = http.createServer(app);
+  const wss = new WebSocketServer({ noServer: true });
+
+  httpServer.on('upgrade', (request, socket, head) => {
+    try {
+      const reqUrl = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
+      if (reqUrl.pathname === '/ws') {
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          wss.emit('connection', ws, request);
+        });
+      }
+    } catch {
+      socket.destroy();
+    }
+  });
+
+  wss.on('connection', (ws: WebSocket) => {
+    (ws as WebSocket & { isAlive?: boolean }).isAlive = true;
+    wsClients.add(ws);
+
+    // Send initial authoritative portal snapshot over WebSocket
+    const initMsg: RealtimeServerMessage = {
+      type: 'state:init',
+      payload: {
+        clubs: db.clubs,
+        events: db.events,
+        announcements: db.announcements,
+        clubAdmins: db.clubAdmins,
+        activityLogs: db.activityLogs,
+        profiles: db.profiles,
+      },
+    };
+    try {
+      ws.send(JSON.stringify(initMsg));
+    } catch {}
+
+    ws.on('pong', () => {
+      (ws as WebSocket & { isAlive?: boolean }).isAlive = true;
+    });
+
+    ws.on('message', (rawData) => {
+      try {
+        const msg = JSON.parse(rawData.toString()) as { type?: string };
+        if (msg?.type === 'ping' && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'pong' }));
+        } else if (msg?.type === 'state:request' && ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: 'state:init',
+              payload: {
+                clubs: db.clubs,
+                events: db.events,
+                announcements: db.announcements,
+                clubAdmins: db.clubAdmins,
+                activityLogs: db.activityLogs,
+                profiles: db.profiles,
+              },
+            })
+          );
+        }
+      } catch {}
+    });
+
+    ws.on('close', () => {
+      wsClients.delete(ws);
+    });
+
+    ws.on('error', () => {
+      wsClients.delete(ws);
+    });
+  });
+
+  const wsHeartbeat = setInterval(() => {
+    for (const client of wsClients) {
+      const tracked = client as WebSocket & { isAlive?: boolean };
+      if (tracked.isAlive === false) {
+        wsClients.delete(client);
+        client.terminate();
+        continue;
+      }
+      tracked.isAlive = false;
+      try {
+        client.ping();
+      } catch {}
+    }
+  }, 30000);
+
+  httpServer.on('close', () => {
+    clearInterval(wsHeartbeat);
+  });
+
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`IIT Dharwad Campus Events Portal server + WebSocket listening on http://0.0.0.0:${PORT}`);
   });
 }
 

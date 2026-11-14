@@ -14,7 +14,9 @@ import {
   Sparkles, 
   ExternalLink,
   ShieldCheck,
-  Compass
+  Compass,
+  BellRing,
+  X
 } from 'lucide-react';
 import {
   getBrowserPushPermission,
@@ -41,6 +43,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const clubs = dataStore.getClubs();
   const allEvents = dataStore.getEvents(false);
   const announcements = dataStore.getAnnouncements(false);
+  const latestArrival = dataStore.getLatestRealtimeArrival();
 
   const handleToggleBookmark = (eventId: string) => {
     if (!user?.email) {
@@ -89,6 +92,50 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   return (
     <div className="space-y-16 pb-16">
+      {latestArrival && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 -mb-10">
+          <div className="p-4 bg-indigo-950/80 border border-indigo-500/60 rounded-xl shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <BellRing className="w-5 h-5 text-indigo-300 shrink-0 mt-0.5" />
+              <div className="text-xs space-y-0.5">
+                <span className="font-bold text-indigo-200 uppercase tracking-wider text-[10px] block">
+                  {latestArrival.kind === 'announcement'
+                    ? `New Announcement · ${latestArrival.clubName}`
+                    : `New Event Published · ${latestArrival.clubName}`}
+                </span>
+                <p className="text-sm font-bold text-white">{latestArrival.title}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const arrival = latestArrival;
+                  dataStore.clearLatestRealtimeArrival();
+                  if (arrival.kind === 'event' && arrival.event) {
+                    onOpenDetails(arrival.event);
+                  } else {
+                    const el = document.getElementById('announcements-section');
+                    el?.scrollIntoView({ behavior: 'smooth' });
+                  }
+                }}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors"
+              >
+                {latestArrival.kind === 'event' ? 'View Event' : 'View Notice'}
+              </button>
+              <button
+                type="button"
+                onClick={() => dataStore.clearLatestRealtimeArrival()}
+                className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-800/70 transition-colors"
+                aria-label="Dismiss announcement alert"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hero Welcome Banner */}
       <section className="relative overflow-hidden pt-8 pb-12 sm:pt-12 sm:pb-16 border-b border-slate-900 bg-gradient-to-b from-slate-950 via-slate-900/60 to-slate-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
