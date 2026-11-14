@@ -44,10 +44,15 @@ export const ManageAnnouncements: React.FC = () => {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!clubId && allowedClubs.length > 0) {
-      setClubId(allowedClubs[0].id);
+    if (!isEditing) {
+      if (!isSuperAdmin && type === 'Campus-wide Announcement') {
+        setType('Club Announcement');
+      }
+      if (allowedClubs.length > 0 && (!clubId || !allowedClubs.some((c) => c.id === clubId))) {
+        setClubId(allowedClubs[0].id);
+      }
     }
-  }, [clubId, allowedClubs]);
+  }, [isEditing, isSuperAdmin, type, clubId, allowedClubs]);
 
   const resetForm = () => {
     setIsEditing(false);

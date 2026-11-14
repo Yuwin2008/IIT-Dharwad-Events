@@ -82,7 +82,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
   // Filters for Events Tab
   const [eventSearch, setEventSearch] = useState('');
   const [clubFilter, setClubFilter] = useState('ALL');
-  const [timeFilter, setTimeFilter] = useState<'upcoming' | 'all'>('upcoming');
+  const [timeFilter, setTimeFilter] = useState<'upcoming' | 'all'>('all');
   const [bookmarkedOnlyFilter, setBookmarkedOnlyFilter] = useState(false);
 
   // Filters for Announcements Tab
@@ -139,7 +139,9 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
     if (bookmarkedOnlyFilter && !bookmarkedEventIds.includes(evt.id)) return false;
     if (clubFilter !== 'ALL' && evt.club_id !== clubFilter) return false;
     if (timeFilter === 'upcoming') {
-      const isPast = new Date(evt.event_date).getTime() < new Date('2026-11-12').getTime();
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const isPast = new Date(evt.event_date).getTime() < todayStart.getTime();
       if (isPast) return false;
     }
     if (eventSearch.trim()) {
@@ -554,15 +556,22 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {events.slice(0, 2).map((evt) => (
-                    <EventCard
-                      key={evt.id}
-                      event={evt}
-                      onOpenDetails={onOpenDetails}
-                      isBookmarked={bookmarkedEventIds.includes(evt.id)}
-                      onToggleBookmark={handleToggleBookmark}
-                    />
-                  ))}
+                  {[...events]
+                    .sort(
+                      (a, b) =>
+                        new Date(b.created_at || b.event_date).getTime() -
+                        new Date(a.created_at || a.event_date).getTime()
+                    )
+                    .slice(0, 4)
+                    .map((evt) => (
+                      <EventCard
+                        key={evt.id}
+                        event={evt}
+                        onOpenDetails={onOpenDetails}
+                        isBookmarked={bookmarkedEventIds.includes(evt.id)}
+                        onToggleBookmark={handleToggleBookmark}
+                      />
+                    ))}
                 </div>
               </div>
 
@@ -581,7 +590,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                 </div>
 
                 <div className="space-y-4">
-                  {announcements.slice(0, 2).map((ann) => (
+                  {announcements.slice(0, 4).map((ann) => (
                     <AnnouncementCard key={ann.id} announcement={ann} />
                   ))}
                 </div>
@@ -622,8 +631,8 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                     onChange={(e) => setTimeFilter(e.target.value as 'upcoming' | 'all')}
                     className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
                   >
-                    <option value="upcoming">Upcoming Events</option>
-                    <option value="all">All Events (Including Past)</option>
+                    <option value="all">All Published Events</option>
+                    <option value="upcoming">Upcoming Events Only</option>
                   </select>
 
                   <button

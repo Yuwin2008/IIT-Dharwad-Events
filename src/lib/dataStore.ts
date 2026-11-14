@@ -57,6 +57,12 @@ const generateUuid = (): string => {
   });
 };
 
+const toSafeTimestamp = (value?: string | null): number => {
+  if (!value) return 0;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
 async function extractApiRejection(res: Response): Promise<string | null> {
   const contentType = res.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
@@ -65,7 +71,7 @@ async function extractApiRejection(res: Response): Promise<string | null> {
   }
   const body = await res.json().catch(() => null);
   if (body && typeof body.error === 'string' && body.error.trim().length > 0) {
-    if (res.status === 400 || res.status === 403) {
+    if (res.status >= 400) {
       return body.error;
     }
   }
@@ -84,6 +90,7 @@ class DataStore {
   private triggeredRemindersByUser: Record<string, Array<{ id: string; eventId: string; timestamp: string; minutesLeft: number }>> = {};
   private readNotificationsByUser: Record<string, string[]> = {};
   private isSupabaseLive: boolean = false;
+  private isServerLive: boolean = false;
   private version: number = 0;
   private listeners: Set<() => void> = new Set();
 
@@ -141,9 +148,8 @@ class DataStore {
       this.readNotificationsByUser = {};
     }
 
-    // Sync from authoritative shared backend & Supabase
-    this.syncFromServer();
-    this.syncFromSupabase();
+    // Sync from authoritative shared backend first; only fall back to Supabase if Express API is unavailable
+    void this.initializeSync();
 
     if (typeof window !== 'undefined') {
       // Keep all student sessions in sync automatically
@@ -192,14 +198,25 @@ class DataStore {
 
   private lastServerSnapshot: string = '';
 
-  public async syncFromServer() {
+  private async initializeSync() {
+    await this.syncFromServer();
+    if (!this.isServerLive) {
+      await this.syncFromSupabase();
+    }
+  }
+
+  public async syncFromServer(force: boolean = false) {
     try {
       const response = await fetch('/api/portal/state', {
-        headers: { 'Cache-Control': 'no-cache' },
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
       });
       if (!response.ok) return;
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) return;
       const rawText = await response.text();
-      if (rawText === this.lastServerSnapshot) return;
+      this.isServerLive = true;
+      if (!force && rawText === this.lastServerSnapshot) return;
       const data = JSON.parse(rawText);
       this.lastServerSnapshot = rawText;
       if (Array.isArray(data.clubs)) this.clubs = data.clubs;
@@ -224,26 +241,31 @@ class DataStore {
   }
 
   public async syncFromSupabase() {
+    if (this.isServerLive) return;
     try {
       const { data: remoteClubs, error: clubsErr } = await supabase.from('clubs').select('*');
+      if (this.isServerLive) return;
       if (!clubsErr && remoteClubs && remoteClubs.length > 0) {
         this.clubs = remoteClubs;
         this.isSupabaseLive = true;
       }
 
       const { data: remoteEvents, error: eventsErr } = await supabase.from('events').select('*');
+      if (this.isServerLive) return;
       if (!eventsErr && remoteEvents && remoteEvents.length > 0) {
         this.events = remoteEvents;
         this.isSupabaseLive = true;
       }
 
       const { data: remoteAnnouncements, error: annErr } = await supabase.from('announcements').select('*');
+      if (this.isServerLive) return;
       if (!annErr && remoteAnnouncements && remoteAnnouncements.length > 0) {
         this.announcements = remoteAnnouncements;
         this.isSupabaseLive = true;
       }
 
       const { data: remoteAdmins, error: adminErr } = await supabase.from('club_admins').select('*');
+      if (this.isServerLive) return;
       if (!adminErr && remoteAdmins && remoteAdmins.length > 0) {
         this.clubAdmins = remoteAdmins;
         this.isSupabaseLive = true;
@@ -428,7 +450,11 @@ class DataStore {
         ...e,
         club: this.getClubById(e.club_id),
       }))
-      .sort((a, b) => new Date(b.event_date).getTime() - new Date(a.event_date).getTime());
+      .sort((a, b) => {
+        const dateDiff = toSafeTimestamp(b.event_date) - toSafeTimestamp(a.event_date);
+        if (dateDiff !== 0) return dateDiff;
+        return toSafeTimestamp(b.created_at) - toSafeTimestamp(a.created_at);
+      });
   }
 
   public getEventById(id: string): EventItem | undefined {
@@ -477,7 +503,7 @@ class DataStore {
       });
       if (res.ok) {
         const created = (await res.json()) as EventItem;
-        await this.syncFromServer();
+        await this.syncFromServer(true);
         return { ...created, club: this.getClubById(created.club_id) };
       }
       const apiErr = await extractApiRejection(res);
@@ -544,7 +570,7 @@ class DataStore {
       });
       if (res.ok) {
         const updated = (await res.json()) as EventItem;
-        await this.syncFromServer();
+        await this.syncFromServer(true);
         return { ...updated, club: this.getClubById(updated.club_id) };
       }
       const apiErr = await extractApiRejection(res);
@@ -616,7 +642,11 @@ class DataStore {
         ...a,
         club: a.club_id ? this.getClubById(a.club_id) : undefined,
       }))
-      .sort((a, b) => new Date(b.published_at || b.created_at).getTime() - new Date(a.published_at || a.created_at).getTime());
+      .sort((a, b) => {
+        const timeA = Math.max(toSafeTimestamp(a.published_at), toSafeTimestamp(a.created_at));
+        const timeB = Math.max(toSafeTimestamp(b.published_at), toSafeTimestamp(b.created_at));
+        return timeB - timeA;
+      });
   }
 
   public async createAnnouncement(
@@ -639,7 +669,7 @@ class DataStore {
       });
       if (res.ok) {
         const created = (await res.json()) as AnnouncementItem;
-        await this.syncFromServer();
+        await this.syncFromServer(true);
         return { ...created, club: created.club_id ? this.getClubById(created.club_id) : undefined };
       }
       const apiErr = await extractApiRejection(res);
@@ -687,7 +717,7 @@ class DataStore {
       });
       if (res.ok) {
         const updated = (await res.json()) as AnnouncementItem;
-        await this.syncFromServer();
+        await this.syncFromServer(true);
         return { ...updated, club: updated.club_id ? this.getClubById(updated.club_id) : undefined };
       }
       const apiErr = await extractApiRejection(res);
@@ -1046,21 +1076,21 @@ class DataStore {
       }
     }
 
-    // 1. New announcements posted by clubs the user follows
+    // 1. All published announcements (Campus-wide circulars + Club announcements)
     for (const ann of this.announcements) {
-      if (ann.status !== 'Published') continue;
-      if (!ann.club_id || !followedSet.has(ann.club_id)) continue;
-      const club = this.getClubById(ann.club_id);
+      if (ann.status === 'Draft') continue;
+      const isCampusWide = ann.type === 'Campus-wide Announcement' || !ann.club_id;
+      const club = ann.club_id ? this.getClubById(ann.club_id) : undefined;
       const id = `ann:${ann.id}`;
       items.push({
         id,
         kind: 'announcement',
         title: ann.title,
         message: ann.content,
-        clubId: ann.club_id,
-        clubName: club?.name || 'Followed Club',
+        clubId: ann.club_id || undefined,
+        clubName: isCampusWide ? 'IIT Dharwad (Campus-wide)' : club?.name || 'Campus Club',
         timestamp: ann.published_at || ann.created_at,
-        isFollowedClub: true,
+        isFollowedClub: ann.club_id ? followedSet.has(ann.club_id) : false,
         isRead: readSet.has(id),
         announcement: { ...ann, club },
       });
@@ -1068,7 +1098,7 @@ class DataStore {
 
     // 2. New events added across the portal
     for (const evt of this.events) {
-      if (evt.status !== 'Published') continue;
+      if (evt.status === 'Draft') continue;
       const club = this.getClubById(evt.club_id);
       const id = `evt:${evt.id}`;
       items.push({
@@ -1086,7 +1116,7 @@ class DataStore {
     }
 
     return items.sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      (a, b) => toSafeTimestamp(b.timestamp) - toSafeTimestamp(a.timestamp)
     );
   }
 }

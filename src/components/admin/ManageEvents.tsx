@@ -61,10 +61,10 @@ export const ManageEvents: React.FC<ManageEventsProps> = ({ onPreviewEvent }) =>
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!clubId && allowedClubs.length > 0) {
+    if (!isEditing && allowedClubs.length > 0 && (!clubId || !allowedClubs.some((c) => c.id === clubId))) {
       setClubId(allowedClubs[0].id);
     }
-  }, [clubId, allowedClubs]);
+  }, [isEditing, clubId, allowedClubs]);
 
   const resetForm = () => {
     setIsEditing(false);

@@ -249,6 +249,9 @@ async function startServer() {
 
   // Get complete synchronized portal state
   app.get('/api/portal/state', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.json({
       clubs: db.clubs,
       events: db.events,
@@ -583,6 +586,7 @@ async function startServer() {
 
     const newEvent: EventItem = {
       ...event,
+      status: event.status || 'Published',
       event_date: dateCheck.sanitized.event_date,
       start_time: dateCheck.sanitized.start_time,
       end_time: dateCheck.sanitized.end_time,
@@ -678,8 +682,16 @@ async function startServer() {
       return;
     }
 
+    const normalizedType =
+      announcement.type === 'Campus-wide Announcement' || !announcement.club_id
+        ? 'Campus-wide Announcement'
+        : 'Club Announcement';
+
     const newAnnouncement: AnnouncementItem = {
       ...announcement,
+      type: normalizedType,
+      club_id: normalizedType === 'Campus-wide Announcement' ? null : announcement.club_id ?? null,
+      status: announcement.status || 'Published',
       id: crypto.randomUUID(),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

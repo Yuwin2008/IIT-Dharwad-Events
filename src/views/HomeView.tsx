@@ -378,11 +378,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {announcements.slice(0, 3).map((ann) => (
-              <AnnouncementCard key={ann.id} announcement={ann} />
-            ))}
-          </div>
+          {announcements.length === 0 ? (
+            <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-xl text-slate-400 text-xs">
+              No announcements published yet.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {announcements.map((ann) => (
+                <AnnouncementCard key={ann.id} announcement={ann} />
+              ))}
+            </div>
+          )}
         </section>
       </div>
     </div>

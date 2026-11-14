@@ -156,7 +156,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
             <span>Notification Center</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Real-time alerts for new campus events and announcements from clubs you follow
+            Real-time alerts for all campus events, official circulars, and club announcements
           </p>
         </div>
 
@@ -183,7 +183,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
           <div>
-            <span className="text-xs text-slate-400 font-medium block">Followed Club Circulars</span>
+            <span className="text-xs text-slate-400 font-medium block">Published Circulars</span>
             <span className="text-2xl font-bold text-white font-mono">{announcementCount}</span>
           </div>
           <Megaphone className="w-7 h-7 text-purple-400/80" />
@@ -207,7 +207,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               { id: 'all', label: `All (${notifications.length})` },
               { id: 'unread', label: `Unread (${unreadCount})` },
               { id: 'reminder', label: `30m Reminders (${reminderCount})` },
-              { id: 'announcement', label: `Club Announcements (${announcementCount})` },
+              { id: 'announcement', label: `Announcements (${announcementCount})` },
               { id: 'event', label: `New Events (${eventCount})` },
             ].map((tab) => (
               <button
@@ -228,9 +228,9 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
             <div className="p-4 bg-indigo-950/30 border border-indigo-800/50 rounded-xl flex items-start gap-3 text-xs text-indigo-200">
               <Sparkles className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-white">Follow clubs to receive announcement alerts</p>
+                <p className="font-semibold text-white">Follow clubs to highlight their updates</p>
                 <p className="text-indigo-200/80 mt-0.5">
-                  You currently receive alerts for all new campus events. Follow clubs on the right to get notified whenever they post a new announcement.
+                  You receive alerts for all campus events, official circulars, and club announcements. Follow clubs on the right to tag their updates as Following.
                 </p>
               </div>
             </div>
