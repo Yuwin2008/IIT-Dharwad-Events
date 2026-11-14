@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase, SUPER_ADMIN_EMAIL } from './supabase';
+import { supabase, SUPER_ADMIN_EMAIL, isIITDHEmail } from './supabase';
 import { validateAndSanitizeEventDates } from './dateValidation';
 import {
   INITIAL_CLUBS,
@@ -268,7 +268,7 @@ class DataStore {
 
   public async registerProfile(email: string, fullName?: string) {
     const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail.endsWith('@iitdh.ac.in')) return;
+    if (!isIITDHEmail(cleanEmail)) return;
 
     const existing = this.profiles.find((p) => p.email.toLowerCase() === cleanEmail);
     if (!existing) {

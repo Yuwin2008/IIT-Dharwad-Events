@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/authContext';
 import { dataStore, useDataStoreVersion } from '../../lib/dataStore';
 import { SUPER_ADMIN_EMAIL } from '../../lib/seedData';
+import { isIITDHEmail } from '../../lib/supabase';
 import { 
   UserCheck, 
   UserPlus, 
@@ -69,8 +70,8 @@ export const ManageClubAdmins: React.FC = () => {
     }
 
     const targetEmail = selectedEmail.trim().toLowerCase();
-    if (!targetEmail.endsWith('@iitdh.ac.in')) {
-      setErrorMessage('Institutional Requirement: Only @iitdh.ac.in user accounts can be assigned.');
+    if (!isIITDHEmail(targetEmail)) {
+      setErrorMessage('Institutional Requirement: Only valid @iitdh.ac.in user accounts can be assigned.');
       return;
     }
 

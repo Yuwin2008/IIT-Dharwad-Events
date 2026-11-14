@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../lib/authContext';
-import { SUPER_ADMIN_EMAIL } from '../../lib/supabase';
+import { isIITDHEmail, normalizeEmail } from '../../lib/supabase';
+import { UserRole } from '../../types';
 import { X, Lock, Mail, User, ShieldAlert, CheckCircle2, ArrowRight } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialMode?: 'login' | 'signup';
-  onSuccessNavigate?: (targetRoute: string) => void;
+  onSuccessNavigate?: (targetRoute: string, role?: UserRole) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -19,20 +20,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showSignupHint, setShowSignupHint] = useState(false);
+  const [showLoginHint, setShowLoginHint] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { login, signup } = useAuth();
+  const { login, signup, resetPassword } = useAuth();
 
   useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
       setPassword('');
+      setConfirmPassword('');
       setErrorMessage('');
       setShowSignupHint(false);
+      setShowLoginHint(false);
       setSuccessMessage('');
       setIsSubmitting(false);
     }
@@ -40,27 +45,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
+  const trimmedEmail = normalizeEmail(email);
+  const hasTypedEmail = trimmedEmail.length > 0;
+  const emailValid = isIITDHEmail(trimmedEmail);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setShowSignupHint(false);
+    setShowLoginHint(false);
     setSuccessMessage('');
     setIsSubmitting(true);
 
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = normalizeEmail(email);
 
-    // Institutional email validation
-    if (!cleanEmail.endsWith('@iitdh.ac.in')) {
-      setErrorMessage('Access Denied: Only official IIT Dharwad institutional accounts (@iitdh.ac.in) are permitted.');
+    // Strict institutional @iitdh.ac.in email validation
+    if (!isIITDHEmail(cleanEmail)) {
+      setErrorMessage(
+        'Access Denied: Only official IIT Dharwad institutional emails (e.g. rollno@iitdh.ac.in) are permitted.'
+      );
       setIsSubmitting(false);
       return;
     }
 
     if (mode === 'forgot') {
-      setTimeout(() => {
-        setSuccessMessage('Password recovery instructions sent to your institutional email.');
+      if (!password || password.length < 6) {
+        setErrorMessage('New password must be at least 6 characters long.');
         setIsSubmitting(false);
-      }, 700);
+        return;
+      }
+      if (password !== confirmPassword) {
+        setErrorMessage('Passwords do not match. Please re-enter your new password.');
+        setIsSubmitting(false);
+        return;
+      }
+      const res = await resetPassword(cleanEmail, password);
+      setIsSubmitting(false);
+      if (res.success) {
+        setSuccessMessage('Password updated for your @iitdh.ac.in account. You can now sign in.');
+        setConfirmPassword('');
+        setMode('login');
+      } else {
+        setErrorMessage(res.error || 'Failed to update password.');
+      }
       return;
     }
 
@@ -80,10 +107,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (res.success) {
         onClose();
         if (onSuccessNavigate) {
-          onSuccessNavigate('/dashboard');
+          onSuccessNavigate('/dashboard', res.role);
         }
       } else {
         setErrorMessage(res.error || 'Failed to complete registration.');
+        if (res.code === 'ACCOUNT_EXISTS') {
+          setShowLoginHint(true);
+        }
       }
     } else {
       const res = await login(cleanEmail, password);
@@ -91,7 +121,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (res.success) {
         onClose();
         if (onSuccessNavigate) {
-          onSuccessNavigate('/dashboard');
+          onSuccessNavigate('/dashboard', res.role);
         }
       } else {
         setErrorMessage(res.error || 'Invalid credentials or institutional account.');
@@ -102,17 +132,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const fillQuickSuperAdmin = () => {
-    setEmail(SUPER_ADMIN_EMAIL);
-    setPassword('SuperAdmin@2026');
-  };
-
   return (
     <div
       onClick={onClose}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
     >
-      <div 
+      <div
         className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full shadow-2xl overflow-hidden relative"
         onClick={(e) => e.stopPropagation()}
       >
@@ -127,15 +152,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <h2 className="text-xl font-bold text-white tracking-tight">
               {mode === 'login' && 'Institute Single Sign-On'}
               {mode === 'signup' && 'Institute Account Registration'}
-              {mode === 'forgot' && 'Reset Institute Password'}
+              {mode === 'forgot' && 'Set / Reset Institute Password'}
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Strictly restricted to @iitdh.ac.in credentials
+              Strictly restricted to @iitdh.ac.in institutional emails
             </p>
           </div>
           <button
             onClick={onClose}
             className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+            aria-label="Close authentication modal"
           >
             <X className="w-5 h-5" />
           </button>
@@ -145,10 +171,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {mode !== 'forgot' && (
           <div className="flex border-b border-slate-800 bg-slate-950/50">
             <button
+              type="button"
               onClick={() => {
                 setMode('login');
                 setErrorMessage('');
                 setShowSignupHint(false);
+                setShowLoginHint(false);
               }}
               className={`flex-1 py-3 text-xs font-semibold tracking-wide transition-colors ${
                 mode === 'login'
@@ -159,10 +187,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               Sign In
             </button>
             <button
+              type="button"
               onClick={() => {
                 setMode('signup');
                 setErrorMessage('');
                 setShowSignupHint(false);
+                setShowLoginHint(false);
               }}
               className={`flex-1 py-3 text-xs font-semibold tracking-wide transition-colors ${
                 mode === 'signup'
@@ -191,9 +221,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     setErrorMessage('');
                     setShowSignupHint(false);
                   }}
-                  className="ml-6 text-indigo-300 hover:text-indigo-200 font-semibold underline"
+                  className="ml-6 text-indigo-300 hover:text-indigo-200 font-semibold underline block text-left"
                 >
-                  Switch to New Registration →
+                  Register {trimmedEmail || 'this @iitdh.ac.in account'} →
+                </button>
+              )}
+              {showLoginHint && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('login');
+                    setErrorMessage('');
+                    setShowLoginHint(false);
+                  }}
+                  className="ml-6 text-indigo-300 hover:text-indigo-200 font-semibold underline block text-left"
+                >
+                  Switch to Sign In →
                 </button>
               )}
             </div>
@@ -235,43 +278,82 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 type="email"
                 required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => setEmail(e.target.value.replace(/\s+/g, ''))}
+                onBlur={() => setEmail((prev) => normalizeEmail(prev))}
                 placeholder="rollno@iitdh.ac.in"
+                autoComplete="email"
                 className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
               />
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Must end with <code className="text-indigo-300">@iitdh.ac.in</code>
+            <p className="text-[11px] mt-1 flex items-center gap-1.5">
+              {!hasTypedEmail ? (
+                <span className="text-slate-400">
+                  Must end with <code className="text-indigo-300">@iitdh.ac.in</code>
+                </span>
+              ) : emailValid ? (
+                <span className="text-emerald-400 flex items-center gap-1 font-medium">
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>Valid @iitdh.ac.in institutional email</span>
+                </span>
+              ) : (
+                <span className="text-amber-400">
+                  Use your official @iitdh.ac.in email (e.g. rollno@iitdh.ac.in)
+                </span>
+              )}
             </p>
           </div>
 
-          {mode !== 'forgot' && (
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-slate-300">
+                {mode === 'forgot' ? 'New Password (min 6 chars)' : 'Password'}
+              </label>
+              {mode === 'login' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('forgot');
+                    setErrorMessage('');
+                    setSuccessMessage('');
+                    setPassword('');
+                    setConfirmPassword('');
+                  }}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  Forgot / Reset password?
+                </button>
+              )}
+            </div>
+            <div className="relative">
+              <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="password"
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+              />
+            </div>
+          </div>
+
+          {mode === 'forgot' && (
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-medium text-slate-300">
-                  Password
-                </label>
-                {mode === 'login' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode('forgot');
-                      setErrorMessage('');
-                    }}
-                    className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
-                  >
-                    Forgot password?
-                  </button>
-                )}
-              </div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                Confirm New Password
+              </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="password"
                   required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  minLength={6}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="••••••••"
+                  autoComplete="new-password"
                   className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
                 />
               </div>
@@ -290,7 +372,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <span>
                   {mode === 'login' && 'Authenticate & Enter'}
                   {mode === 'signup' && 'Create Account & Enter'}
-                  {mode === 'forgot' && 'Send Recovery Email'}
+                  {mode === 'forgot' && 'Update Password'}
                 </span>
                 <ArrowRight className="w-4 h-4" />
               </>
@@ -301,30 +383,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="text-center pt-2">
               <button
                 type="button"
-                onClick={() => setMode('login')}
+                onClick={() => {
+                  setMode('login');
+                  setErrorMessage('');
+                  setPassword('');
+                  setConfirmPassword('');
+                }}
                 className="text-xs text-slate-400 hover:text-white transition-colors"
               >
-                ← Return to Login
+                ← Return to Sign In
               </button>
             </div>
           )}
 
-          {/* Authentication policy & Super Admin helper */}
-          <div className="pt-3 border-t border-slate-800 space-y-2.5">
+          {/* Authentication policy */}
+          <div className="pt-3 border-t border-slate-800">
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              Students and Club Admins must sign in with their <code className="text-indigo-300">@iitdh.ac.in</code> password on each visit. New to the portal? Select <strong className="text-slate-200">New Registration</strong> above.
+              All users (Students, Club Admins, and Super Admins) must sign in with their <code className="text-indigo-300">@iitdh.ac.in</code> email and password on each visit. New to the portal? Select <strong className="text-slate-200">New Registration</strong> above.
             </p>
-            <button
-              type="button"
-              onClick={fillQuickSuperAdmin}
-              className="w-full text-[11px] bg-slate-800/80 hover:bg-slate-800 text-slate-300 py-1.5 px-2.5 rounded border border-slate-700 text-left transition-colors flex items-center justify-between gap-2"
-            >
-              <span>
-                <strong className="text-purple-300">Super Admin Quick-Fill:</strong>{' '}
-                <span className="opacity-80">{SUPER_ADMIN_EMAIL}</span>
-              </span>
-              <span className="text-[10px] text-slate-400">Fill</span>
-            </button>
           </div>
         </form>
       </div>

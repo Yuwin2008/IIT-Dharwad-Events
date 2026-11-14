@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase, SUPER_ADMIN_EMAIL, isIITDHEmail } from './supabase';
+import { supabase, SUPER_ADMIN_EMAIL, isIITDHEmail, normalizeEmail } from './supabase';
 import { dataStore } from './dataStore';
 import { AuthenticatedUser, UserRole } from '../types';
 
@@ -7,6 +7,7 @@ interface AuthResult {
   success: boolean;
   error?: string;
   code?: string;
+  role?: UserRole;
 }
 
 interface AuthContextType {
@@ -14,8 +15,8 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password?: string) => Promise<AuthResult>;
   signup: (email: string, password: string, fullName: string) => Promise<AuthResult>;
+  resetPassword: (email: string, newPassword: string) => Promise<AuthResult>;
   logout: () => Promise<void>;
-  switchToSuperAdmin: () => void;
   canAccessAdmin: boolean;
   isSuperAdmin: boolean;
   isClubAdmin: boolean;
@@ -25,13 +26,47 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const LOCAL_USER_KEY = 'iitdh_auth_user_session';
+const FALLBACK_AUTH_KEY = 'iitdh_portal_fallback_auth';
+
+interface LocalCredentialEntry {
+  passwordHash: string;
+  fullName: string;
+  updatedAt: string;
+}
+
+async function hashLocalPassword(email: string, password: string): Promise<string> {
+  const input = `${normalizeEmail(email)}::${password}`;
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const encoded = new TextEncoder().encode(input);
+    const digest = await crypto.subtle.digest('SHA-256', encoded);
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+  return input;
+}
+
+function loadLocalCredentialStore(): Record<string, LocalCredentialEntry> {
+  try {
+    const raw = localStorage.getItem(FALLBACK_AUTH_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, LocalCredentialEntry>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalCredentialStore(store: Record<string, LocalCredentialEntry>) {
+  try {
+    localStorage.setItem(FALLBACK_AUTH_KEY, JSON.stringify(store));
+  } catch {}
+}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   const resolveUserRole = (email: string): { role: UserRole; assignedClubIds: string[] } => {
-    const normalized = email.toLowerCase().trim();
+    const normalized = normalizeEmail(email);
     if (normalized === SUPER_ADMIN_EMAIL.toLowerCase()) {
       return {
         role: 'super_admin',
@@ -53,13 +88,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   };
 
-  const applySessionStoragePolicy = (authUser: AuthenticatedUser) => {
-    if (authUser.role === 'super_admin') {
-      localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(authUser));
-    } else {
-      // Normal students and Club Admins must stay logged out between visits/reloads
-      localStorage.removeItem(LOCAL_USER_KEY);
-    }
+  const applySessionStoragePolicy = (_authUser: AuthenticatedUser) => {
+    // All user roles (Students, Club Admins, Super Admins) must stay logged out between visits/reloads
+    localStorage.removeItem(LOCAL_USER_KEY);
   };
 
   useEffect(() => {
@@ -67,48 +98,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         await dataStore.syncFromServer();
 
-        // 1. Check active Supabase session — only restore Super Admin automatically
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user?.email && isIITDHEmail(session.user.email)) {
-          const { role, assignedClubIds } = resolveUserRole(session.user.email);
-          if (role === 'super_admin') {
-            const fullName = session.user.user_metadata?.full_name || session.user.email.split('@')[0];
-            dataStore.registerProfile(session.user.email, fullName);
-            const authUser: AuthenticatedUser = {
-              id: session.user.id,
-              email: session.user.email,
-              fullName,
-              role,
-              assignedClubIds,
-            };
-            setUser(authUser);
-            applySessionStoragePolicy(authUser);
-            setLoading(false);
-            return;
-          } else {
-            // Ensure normal student and club admin accounts start logged out
-            await supabase.auth.signOut().catch(() => {});
-            localStorage.removeItem(LOCAL_USER_KEY);
-          }
-        }
-
-        // 2. Check local stored user — only restore Super Admin automatically
-        const stored = localStorage.getItem(LOCAL_USER_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored) as AuthenticatedUser;
-          const { role, assignedClubIds } = resolveUserRole(parsed.email);
-          if (role === 'super_admin') {
-            dataStore.registerProfile(parsed.email, parsed.fullName);
-            setUser({
-              ...parsed,
-              role,
-              assignedClubIds,
-            });
-          } else {
-            localStorage.removeItem(LOCAL_USER_KEY);
-            setUser(null);
-          }
-        }
+        // Compulsory sign-in policy: clear any persisted Supabase or local session for all user types
+        localStorage.removeItem(LOCAL_USER_KEY);
+        await supabase.auth.signOut().catch(() => {});
+        setUser(null);
       } catch (e) {
         console.error('Auth initialization error:', e);
       } finally {
@@ -138,11 +131,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, password?: string): Promise<AuthResult> => {
-    const cleanEmail = email.toLowerCase().trim();
+    const cleanEmail = normalizeEmail(email);
     if (!isIITDHEmail(cleanEmail)) {
       return {
         success: false,
-        error: 'Access restricted: Please enter an official IIT Dharwad institutional email (@iitdh.ac.in).',
+        error: 'Access restricted: Please enter a valid IIT Dharwad institutional email (@iitdh.ac.in).',
       };
     }
 
@@ -152,7 +145,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     await dataStore.syncFromServer();
 
-    // 1. Verify credentials against server portal auth store
+    // 1. Verify credentials against Express portal auth API
+    let expressReachable = false;
     try {
       const res = await fetch('/api/portal/auth/login', {
         method: 'POST',
@@ -162,6 +156,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
+        expressReachable = true;
         const body = await res.json();
         if (res.ok && body?.profile) {
           const authUser: AuthenticatedUser = {
@@ -174,34 +169,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(authUser);
           applySessionStoragePolicy(authUser);
           await dataStore.syncFromServer();
-          return { success: true };
+          return { success: true, role: authUser.role };
         }
 
-        // Also try Supabase Auth in case account was created directly in Supabase
-        try {
-          const { data, error } = await supabase.auth.signInWithPassword({
-            email: cleanEmail,
-            password,
-          });
-          if (!error && data?.user?.email) {
-            const fullName = data.user.user_metadata?.full_name || cleanEmail.split('@')[0];
-            await dataStore.registerProfile(cleanEmail, fullName);
-            const { role, assignedClubIds } = resolveUserRole(cleanEmail);
-            const authUser: AuthenticatedUser = {
-              id: data.user.id,
+        // If Express says not registered, also try Supabase Auth in case user registered directly via Supabase
+        if (body?.code === 'ACCOUNT_NOT_REGISTERED') {
+          try {
+            const { data, error } = await supabase.auth.signInWithPassword({
               email: cleanEmail,
-              fullName,
-              role,
-              assignedClubIds,
-            };
-            if (role !== 'super_admin') {
-              await supabase.auth.signOut().catch(() => {});
+              password,
+            });
+            if (!error && data?.user?.email) {
+              const fullName = data.user.user_metadata?.full_name || cleanEmail.split('@')[0];
+              await dataStore.registerProfile(cleanEmail, fullName);
+              const { role, assignedClubIds } = resolveUserRole(cleanEmail);
+              const authUser: AuthenticatedUser = {
+                id: data.user.id,
+                email: cleanEmail,
+                fullName,
+                role,
+                assignedClubIds,
+              };
+              void supabase.auth.signOut().catch(() => {});
+              setUser(authUser);
+              applySessionStoragePolicy(authUser);
+              return { success: true, role };
             }
-            setUser(authUser);
-            applySessionStoragePolicy(authUser);
-            return { success: true };
-          }
-        } catch {}
+          } catch {}
+        }
 
         return {
           success: false,
@@ -211,32 +206,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch {}
 
-    // 2. Fallback to Supabase Auth if Express API is unavailable
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password,
-      });
-
-      if (!error && data?.user?.email) {
-        const fullName = data.user.user_metadata?.full_name || cleanEmail.split('@')[0];
-        await dataStore.registerProfile(cleanEmail, fullName);
+    // 2. Fallback when Express API is unavailable (static/offline hosting): local cache + Supabase
+    if (!expressReachable) {
+      const localStore = loadLocalCredentialStore();
+      const localCred = localStore[cleanEmail];
+      if (localCred) {
+        const candidateHash = await hashLocalPassword(cleanEmail, password);
+        if (candidateHash !== localCred.passwordHash) {
+          return { success: false, error: 'Invalid email or password.' };
+        }
+        await dataStore.registerProfile(cleanEmail, localCred.fullName);
         const { role, assignedClubIds } = resolveUserRole(cleanEmail);
         const authUser: AuthenticatedUser = {
-          id: data.user.id,
+          id: crypto.randomUUID(),
           email: cleanEmail,
-          fullName,
+          fullName: localCred.fullName,
           role,
           assignedClubIds,
         };
-        if (role !== 'super_admin') {
-          await supabase.auth.signOut().catch(() => {});
-        }
         setUser(authUser);
         applySessionStoragePolicy(authUser);
-        return { success: true };
+        return { success: true, role };
       }
-    } catch {}
+
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
+
+        if (!error && data?.user?.email) {
+          const fullName = data.user.user_metadata?.full_name || cleanEmail.split('@')[0];
+          await dataStore.registerProfile(cleanEmail, fullName);
+          const { role, assignedClubIds } = resolveUserRole(cleanEmail);
+          const authUser: AuthenticatedUser = {
+            id: data.user.id,
+            email: cleanEmail,
+            fullName,
+            role,
+            assignedClubIds,
+          };
+          void supabase.auth.signOut().catch(() => {});
+          setUser(authUser);
+          applySessionStoragePolicy(authUser);
+          return { success: true, role };
+        }
+      } catch {}
+
+      return {
+        success: false,
+        error: 'This @iitdh.ac.in account has not registered a password yet. Switch to New Registration to create your account.',
+        code: 'ACCOUNT_NOT_REGISTERED',
+      };
+    }
 
     return {
       success: false,
@@ -245,11 +267,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signup = async (email: string, password: string, fullName: string): Promise<AuthResult> => {
-    const cleanEmail = email.toLowerCase().trim();
+    const cleanEmail = normalizeEmail(email);
     if (!isIITDHEmail(cleanEmail)) {
       return {
         success: false,
-        error: 'Registration rejected: Only institutional email addresses ending in @iitdh.ac.in are permitted.',
+        error: 'Registration rejected: Only valid IIT Dharwad institutional emails (@iitdh.ac.in) are permitted.',
       };
     }
 
@@ -263,6 +285,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     await dataStore.syncFromServer();
 
+    let expressReachable = false;
     try {
       const res = await fetch('/api/portal/auth/signup', {
         method: 'POST',
@@ -272,6 +295,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
+        expressReachable = true;
         const body = await res.json();
         if (!res.ok) {
           return {
@@ -281,17 +305,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
         }
 
-        // Optionally mirror signup to Supabase Auth without leaving a persistent session for non-super-admins
-        try {
-          await supabase.auth.signUp({
-            email: cleanEmail,
-            password,
-            options: { data: { full_name: fullName.trim() } },
-          });
-          if (body.role !== 'super_admin') {
+        // Fire-and-forget Supabase Auth mirror without blocking registration
+        void (async () => {
+          try {
+            await supabase.auth.signUp({
+              email: cleanEmail,
+              password,
+              options: { data: { full_name: fullName.trim() } },
+            });
             await supabase.auth.signOut().catch(() => {});
-          }
-        } catch {}
+          } catch {}
+        })();
 
         const authUser: AuthenticatedUser = {
           id: body.profile.id,
@@ -303,47 +327,93 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(authUser);
         applySessionStoragePolicy(authUser);
         await dataStore.syncFromServer();
-        return { success: true };
+        return { success: true, role: authUser.role };
       }
     } catch {}
 
-    // Fallback to Supabase Auth if Express API is unavailable
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password,
-        options: {
-          data: {
-            full_name: fullName.trim(),
-          },
-        },
-      });
-
-      if (error) {
-        return { success: false, error: error.message };
-      }
-
-      if (data?.user) {
-        const resolvedName = fullName.trim() || cleanEmail.split('@')[0];
-        await dataStore.registerProfile(cleanEmail, resolvedName);
-        const { role, assignedClubIds } = resolveUserRole(cleanEmail);
-        if (role !== 'super_admin') {
-          await supabase.auth.signOut().catch(() => {});
-        }
-        const authUser: AuthenticatedUser = {
-          id: data.user.id,
-          email: cleanEmail,
-          fullName: resolvedName,
-          role,
-          assignedClubIds,
+    // Fallback when Express API is unavailable
+    if (!expressReachable) {
+      const localStore = loadLocalCredentialStore();
+      if (localStore[cleanEmail]) {
+        return {
+          success: false,
+          error: 'An account with this @iitdh.ac.in email is already registered. Please sign in with your password.',
+          code: 'ACCOUNT_EXISTS',
         };
-        setUser(authUser);
-        applySessionStoragePolicy(authUser);
-        return { success: true };
       }
-    } catch {}
+
+      const passwordHash = await hashLocalPassword(cleanEmail, password);
+      localStore[cleanEmail] = {
+        passwordHash,
+        fullName: fullName.trim(),
+        updatedAt: new Date().toISOString(),
+      };
+      saveLocalCredentialStore(localStore);
+      await dataStore.registerProfile(cleanEmail, fullName.trim());
+
+      const { role, assignedClubIds } = resolveUserRole(cleanEmail);
+      const authUser: AuthenticatedUser = {
+        id: crypto.randomUUID(),
+        email: cleanEmail,
+        fullName: fullName.trim(),
+        role,
+        assignedClubIds,
+      };
+      setUser(authUser);
+      applySessionStoragePolicy(authUser);
+      return { success: true, role };
+    }
 
     return { success: false, error: 'Registration service unavailable. Please try again.' };
+  };
+
+  const resetPassword = async (email: string, newPassword: string): Promise<AuthResult> => {
+    const cleanEmail = normalizeEmail(email);
+    if (!isIITDHEmail(cleanEmail)) {
+      return {
+        success: false,
+        error: 'Only valid IIT Dharwad institutional emails (@iitdh.ac.in) are permitted.',
+      };
+    }
+    if (!newPassword || newPassword.length < 6) {
+      return {
+        success: false,
+        error: 'New password must be at least 6 characters in length.',
+      };
+    }
+
+    let expressReachable = false;
+    try {
+      const res = await fetch('/api/portal/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, newPassword }),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        expressReachable = true;
+        const body = await res.json();
+        if (!res.ok) {
+          return { success: false, error: body?.error || 'Failed to reset password.' };
+        }
+        await dataStore.syncFromServer();
+        return { success: true };
+      }
+    } catch {}
+
+    if (!expressReachable) {
+      const localStore = loadLocalCredentialStore();
+      const existing = localStore[cleanEmail];
+      localStore[cleanEmail] = {
+        passwordHash: await hashLocalPassword(cleanEmail, newPassword),
+        fullName: existing?.fullName || cleanEmail.split('@')[0],
+        updatedAt: new Date().toISOString(),
+      };
+      saveLocalCredentialStore(localStore);
+      return { success: true };
+    }
+
+    return { success: false, error: 'Password reset service unavailable. Please try again.' };
   };
 
   const logout = async () => {
@@ -352,18 +422,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {}
     setUser(null);
     localStorage.removeItem(LOCAL_USER_KEY);
-  };
-
-  const switchToSuperAdmin = () => {
-    const authUser: AuthenticatedUser = {
-      id: 'usr_ec26bt032',
-      email: SUPER_ADMIN_EMAIL,
-      fullName: 'Super Administrator',
-      role: 'super_admin',
-      assignedClubIds: dataStore.getClubs().map((c) => c.id),
-    };
-    setUser(authUser);
-    applySessionStoragePolicy(authUser);
   };
 
   const canAccessAdmin = user?.role === 'super_admin' || user?.role === 'club_admin';
@@ -377,8 +435,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loading,
         login,
         signup,
+        resetPassword,
         logout,
-        switchToSuperAdmin,
         canAccessAdmin,
         isSuperAdmin,
         isClubAdmin,

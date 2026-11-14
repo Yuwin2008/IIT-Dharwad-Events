@@ -7,7 +7,7 @@ interface TestAccountSwitcherProps {
 }
 
 export const TestAccountSwitcher: React.FC<TestAccountSwitcherProps> = ({ onOpenAuth }) => {
-  const { user, switchToSuperAdmin, logout } = useAuth();
+  const { user, logout } = useAuth();
 
   const handleRequireLogin = async (mode: 'login' | 'signup' = 'login') => {
     if (user) {
@@ -28,22 +28,22 @@ export const TestAccountSwitcher: React.FC<TestAccountSwitcherProps> = ({ onOpen
             </span>
           </span>
         ) : (
-          <span className="text-slate-400">Logged out (Sign in required for Student & Club Admin)</span>
+          <span className="text-slate-400">Logged out (Sign in required on every visit for all users)</span>
         )}
       </div>
 
       <div className="flex items-center gap-1.5 flex-wrap">
         <button
-          onClick={() => switchToSuperAdmin()}
+          onClick={() => handleRequireLogin('login')}
           className={`px-2.5 py-1 rounded transition-colors flex items-center gap-1 font-medium ${
             user?.role === 'super_admin'
               ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40'
               : 'hover:bg-slate-800 text-slate-300 border border-slate-700/60'
           }`}
-          title="Super Administrator (ec26bt032@iitdh.ac.in)"
+          title="Super Admins must sign in with their credentials on every visit"
         >
           <Shield className="w-3.5 h-3.5 text-purple-400" />
-          <span>Super Admin</span>
+          <span>Super Admin (Login)</span>
         </button>
 
         <button

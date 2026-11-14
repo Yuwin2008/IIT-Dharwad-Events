@@ -231,10 +231,11 @@ function AppContent() {
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
         initialMode={authModalMode}
-        onSuccessNavigate={(target) => {
-          if (!currentRoute.startsWith('/admin')) {
-            navigateTo(target);
+        onSuccessNavigate={(target, role) => {
+          if (currentRoute.startsWith('/admin') && (role === 'super_admin' || role === 'club_admin')) {
+            return;
           }
+          navigateTo(target);
         }}
       />
 

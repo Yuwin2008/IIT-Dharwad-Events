@@ -187,6 +187,13 @@ function isSuperAdminEmail(email?: string): boolean {
   return email.trim().toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
 }
 
+const IITDH_EMAIL_REGEX = /^[a-z0-9._%+-]+@iitdh\.ac\.in$/;
+
+function isIITDHEmail(email?: string): boolean {
+  if (!email) return false;
+  return IITDH_EMAIL_REGEX.test(email.trim().toLowerCase());
+}
+
 function isClubAdminFor(email: string | undefined, clubId: string): boolean {
   if (!email) return false;
   if (isSuperAdminEmail(email)) return true;
@@ -259,8 +266,8 @@ async function startServer() {
   app.post('/api/portal/follows', (req, res) => {
     const { email, clubId } = req.body as { email?: string; clubId?: string };
     const cleanEmail = email?.trim().toLowerCase() || '';
-    if (!cleanEmail.endsWith('@iitdh.ac.in')) {
-      res.status(400).json({ error: 'Only @iitdh.ac.in accounts can follow clubs.' });
+    if (!isIITDHEmail(cleanEmail)) {
+      res.status(400).json({ error: 'Only official @iitdh.ac.in accounts can follow clubs.' });
       return;
     }
     if (!clubId || !db.clubs.some((c) => c.id === clubId)) {
@@ -280,8 +287,8 @@ async function startServer() {
   app.post('/api/portal/bookmarks', (req, res) => {
     const { email, eventId } = req.body as { email?: string; eventId?: string };
     const cleanEmail = email?.trim().toLowerCase() || '';
-    if (!cleanEmail.endsWith('@iitdh.ac.in')) {
-      res.status(400).json({ error: 'Only @iitdh.ac.in accounts can bookmark events.' });
+    if (!isIITDHEmail(cleanEmail)) {
+      res.status(400).json({ error: 'Only official @iitdh.ac.in accounts can bookmark events.' });
       return;
     }
     if (!eventId || !db.events.some((e) => e.id === eventId)) {
@@ -304,8 +311,8 @@ async function startServer() {
       notificationIds?: string[];
     };
     const cleanEmail = email?.trim().toLowerCase() || '';
-    if (!cleanEmail.endsWith('@iitdh.ac.in')) {
-      res.status(400).json({ error: 'Only @iitdh.ac.in accounts can update notification state.' });
+    if (!isIITDHEmail(cleanEmail)) {
+      res.status(400).json({ error: 'Only official @iitdh.ac.in accounts can update notification state.' });
       return;
     }
     if (!Array.isArray(notificationIds)) {
@@ -330,8 +337,8 @@ async function startServer() {
   // Register or update institutional user profile
   app.post('/api/portal/profiles', (req, res) => {
     const { email, fullName } = req.body as { email?: string; fullName?: string };
-    if (!email || !email.trim().toLowerCase().endsWith('@iitdh.ac.in')) {
-      res.status(400).json({ error: 'Only @iitdh.ac.in email addresses are permitted.' });
+    if (!email || !isIITDHEmail(email)) {
+      res.status(400).json({ error: 'Only valid @iitdh.ac.in email addresses are permitted.' });
       return;
     }
 
@@ -365,9 +372,9 @@ async function startServer() {
       fullName?: string;
     };
     const cleanEmail = email?.trim().toLowerCase() || '';
-    if (!cleanEmail.endsWith('@iitdh.ac.in')) {
+    if (!isIITDHEmail(cleanEmail)) {
       res.status(400).json({
-        error: 'Registration rejected: Only institutional email addresses ending in @iitdh.ac.in are permitted.',
+        error: 'Registration rejected: Only valid IIT Dharwad institutional emails (@iitdh.ac.in) are permitted.',
       });
       return;
     }
@@ -383,7 +390,7 @@ async function startServer() {
     db.authCredentials = db.authCredentials || {};
     if (db.authCredentials[cleanEmail]) {
       res.status(409).json({
-        error: 'An account with this email is already registered. Please sign in with your password.',
+        error: 'An account with this @iitdh.ac.in email is already registered. Please sign in with your password.',
         code: 'ACCOUNT_EXISTS',
       });
       return;
@@ -415,9 +422,9 @@ async function startServer() {
   app.post('/api/portal/auth/login', (req, res) => {
     const { email, password } = req.body as { email?: string; password?: string };
     const cleanEmail = email?.trim().toLowerCase() || '';
-    if (!cleanEmail.endsWith('@iitdh.ac.in')) {
+    if (!isIITDHEmail(cleanEmail)) {
       res.status(400).json({
-        error: 'Access restricted: Please enter an official IIT Dharwad institutional email (@iitdh.ac.in).',
+        error: 'Access restricted: Please enter a valid IIT Dharwad institutional email (@iitdh.ac.in).',
       });
       return;
     }
@@ -430,7 +437,7 @@ async function startServer() {
     const cred = db.authCredentials[cleanEmail];
     if (!cred) {
       res.status(401).json({
-        error: 'Account not registered yet. If you are new, please switch to New Registration to create your account.',
+        error: 'This @iitdh.ac.in account has not set a portal password yet. Switch to New Registration to create your account.',
         code: 'ACCOUNT_NOT_REGISTERED',
       });
       return;
@@ -455,6 +462,42 @@ async function startServer() {
 
     const { role, assignedClubIds } = resolveRoleForEmail(db, cleanEmail);
     res.json({ profile, role, assignedClubIds });
+  });
+
+  app.post('/api/portal/auth/reset-password', (req, res) => {
+    const { email, newPassword } = req.body as { email?: string; newPassword?: string };
+    const cleanEmail = email?.trim().toLowerCase() || '';
+    if (!isIITDHEmail(cleanEmail)) {
+      res.status(400).json({
+        error: 'Only valid IIT Dharwad institutional emails (@iitdh.ac.in) are permitted.',
+      });
+      return;
+    }
+    if (!newPassword || newPassword.length < 6) {
+      res.status(400).json({ error: 'New password must be at least 6 characters in length.' });
+      return;
+    }
+
+    db.authCredentials = db.authCredentials || {};
+    db.authCredentials[cleanEmail] = {
+      passwordHash: hashPassword(newPassword),
+      updatedAt: new Date().toISOString(),
+    };
+
+    let profile = db.profiles.find((p) => p.email.toLowerCase() === cleanEmail);
+    if (!profile) {
+      profile = {
+        id: crypto.randomUUID(),
+        email: cleanEmail,
+        full_name: cleanEmail.split('@')[0],
+        created_at: new Date().toISOString(),
+      };
+      db.profiles.push(profile);
+    }
+
+    saveDatabase(db);
+    const { role, assignedClubIds } = resolveRoleForEmail(db, cleanEmail);
+    res.json({ success: true, profile, role, assignedClubIds });
   });
 
   // --- CLUBS CRUD (Super Admin only) ---
@@ -738,6 +781,10 @@ async function startServer() {
     }
 
     const cleanEmail = userEmail.trim().toLowerCase();
+    if (!isIITDHEmail(cleanEmail)) {
+      res.status(400).json({ error: 'Only valid @iitdh.ac.in accounts can be assigned as club admins.' });
+      return;
+    }
     const existing = db.clubAdmins.find(
       (ca) => ca.user_email?.toLowerCase() === cleanEmail && ca.club_id === clubId
     );

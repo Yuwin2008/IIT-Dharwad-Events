@@ -14,13 +14,19 @@ export const SUPER_ADMIN_EMAIL = 'ec26bt032@iitdh.ac.in';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
   },
 });
 
+export const IITDH_EMAIL_REGEX = /^[a-z0-9._%+-]+@iitdh\.ac\.in$/;
+
+export const normalizeEmail = (email: string): string => {
+  return email ? email.trim().toLowerCase() : '';
+};
+
 export const isIITDHEmail = (email: string): boolean => {
   if (!email) return false;
-  return email.trim().toLowerCase().endsWith('@iitdh.ac.in');
+  return IITDH_EMAIL_REGEX.test(normalizeEmail(email));
 };
