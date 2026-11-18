@@ -32,6 +32,7 @@ import { EventItem, Club, PortalNotification } from '../types';
 
 interface NormalDashboardViewProps {
   initialTab?: string;
+  onTabChange?: (tab: string) => void;
   onOpenDetails: (event: EventItem) => void;
   onSelectClub: (club: Club) => void;
   onNavigateAdmin?: () => void;
@@ -39,6 +40,7 @@ interface NormalDashboardViewProps {
 
 export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
   initialTab = 'overview',
+  onTabChange,
   onOpenDetails,
   onSelectClub,
   onNavigateAdmin,
@@ -50,6 +52,11 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  const switchTab = (tab: string) => {
+    setActiveTab(tab);
+    onTabChange?.(tab);
+  };
 
   const clubs = dataStore.getClubs();
   const events = dataStore.getEvents(false);
@@ -88,6 +95,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
 
   // Filters for Announcements Tab
   const [announcementClubFilter, setAnnouncementClubFilter] = useState('ALL');
+  const [announcementSearch, setAnnouncementSearch] = useState('');
 
   // Search and domain filter for Clubs Tab
   const [clubSearch, setClubSearch] = useState('');
@@ -131,7 +139,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
       onOpenDetails(item.event);
     } else if (item.kind === 'announcement') {
       setAnnouncementClubFilter(item.clubId || 'ALL');
-      setActiveTab('announcements');
+      switchTab('announcements');
     }
   };
 
@@ -181,10 +189,20 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
   // Announcement filtering logic
   const filteredAnnouncements = announcements.filter((ann) => {
     if (announcementClubFilter === 'CAMPUS_WIDE') {
-      return ann.type === 'Campus-wide Announcement' || !ann.club_id;
+      if (!(ann.type === 'Campus-wide Announcement' || !ann.club_id)) return false;
+    } else if (announcementClubFilter === 'CLUB_ONLY') {
+      if (!ann.club_id || ann.type === 'Campus-wide Announcement') return false;
+    } else if (announcementClubFilter !== 'ALL') {
+      if (ann.club_id !== announcementClubFilter) return false;
     }
-    if (announcementClubFilter !== 'ALL') {
-      return ann.club_id === announcementClubFilter;
+
+    if (announcementSearch.trim()) {
+      const q = announcementSearch.toLowerCase();
+      return (
+        ann.title.toLowerCase().includes(q) ||
+        ann.content.toLowerCase().includes(q) ||
+        (ann.club?.name || '').toLowerCase().includes(q)
+      );
     }
     return true;
   });
@@ -210,7 +228,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
 
           <nav className="space-y-1 text-xs font-medium">
             <button
-              onClick={() => setActiveTab('overview')}
+              onClick={() => switchTab('overview')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'overview'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
@@ -225,7 +243,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('upcoming')}
+              onClick={() => switchTab('upcoming')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'upcoming'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
@@ -240,7 +258,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('clubs')}
+              onClick={() => switchTab('clubs')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'clubs'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
@@ -255,7 +273,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('announcements')}
+              onClick={() => switchTab('announcements')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'announcements'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
@@ -270,7 +288,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('notifications')}
+              onClick={() => switchTab('notifications')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'notifications'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
@@ -291,7 +309,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('account')}
+              onClick={() => switchTab('account')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'account'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
@@ -482,7 +500,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                             type="button"
                             onClick={() => {
                               setNotifMenuOpen(false);
-                              setActiveTab('notifications');
+                              switchTab('notifications');
                             }}
                             className="text-xs font-semibold text-indigo-400 hover:text-indigo-300"
                           >
@@ -501,7 +519,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                   </div>
 
                   <button
-                    onClick={() => setActiveTab('upcoming')}
+                    onClick={() => switchTab('upcoming')}
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm shadow-indigo-950"
                   >
                     Browse Events
@@ -545,7 +563,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                   <VibeAThonHero
                     event={featuredEvent}
                     onOpenDetails={onOpenDetails}
-                    onOpenAnnouncement={() => setActiveTab('announcements')}
+                    onOpenAnnouncement={() => switchTab('announcements')}
                   />
                 </div>
               )}
@@ -557,7 +575,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                     Upcoming Campus Events
                   </h3>
                   <button
-                    onClick={() => setActiveTab('upcoming')}
+                    onClick={() => switchTab('upcoming')}
                     className="text-xs font-semibold text-indigo-400 hover:text-indigo-300"
                   >
                     View All →
@@ -591,7 +609,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
                     Recent Announcements
                   </h3>
                   <button
-                    onClick={() => setActiveTab('announcements')}
+                    onClick={() => switchTab('announcements')}
                     className="text-xs font-semibold text-indigo-400 hover:text-indigo-300"
                   >
                     All Notices →
@@ -780,34 +798,96 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-bold text-white tracking-tight">
-                    Campus Announcements Feed
+                  <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                    <Megaphone className="w-5 h-5 text-indigo-400" />
+                    <span>Campus Announcements Feed ({filteredAnnouncements.length})</span>
                   </h2>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Chronological verified notifications and circulars (Read-only)
+                    Verified official circulars and real-time club notices across IIT Dharwad
                   </p>
                 </div>
+              </div>
 
-                <select
-                  value={announcementClubFilter}
-                  onChange={(e) => setAnnouncementClubFilter(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="ALL">All Announcements</option>
-                  <option value="CAMPUS_WIDE">Campus-wide Circulars</option>
-                  {clubs.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
+              {/* Filter & Search Bar */}
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {[
+                    { id: 'ALL', label: `All Notices (${announcements.length})` },
+                    {
+                      id: 'CAMPUS_WIDE',
+                      label: `Campus-wide (${announcements.filter((a) => a.type === 'Campus-wide Announcement' || !a.club_id).length})`,
+                    },
+                    {
+                      id: 'CLUB_ONLY',
+                      label: `Club Notices (${announcements.filter((a) => a.club_id && a.type !== 'Campus-wide Announcement').length})`,
+                    },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setAnnouncementClubFilter(tab.id)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+                        announcementClubFilter === tab.id
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'bg-slate-950 text-slate-300 hover:text-white border border-slate-800'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
                   ))}
-                </select>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <select
+                    value={announcementClubFilter}
+                    onChange={(e) => setAnnouncementClubFilter(e.target.value)}
+                    className="w-full sm:w-64 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="ALL">All Clubs & Circulars</option>
+                    <option value="CAMPUS_WIDE">Campus-wide Circulars</option>
+                    <option value="CLUB_ONLY">All Club Announcements</option>
+                    {clubs.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="relative w-full sm:w-64">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={announcementSearch}
+                      onChange={(e) => setAnnouncementSearch(e.target.value)}
+                      placeholder="Search announcements..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-4">
-                {filteredAnnouncements.map((ann) => (
-                  <AnnouncementCard key={ann.id} announcement={ann} />
-                ))}
-              </div>
+              {filteredAnnouncements.length === 0 ? (
+                <div className="p-12 text-center bg-slate-900 border border-slate-800 rounded-xl space-y-2 text-slate-400 text-xs">
+                  <Megaphone className="w-8 h-8 text-slate-500 mx-auto" />
+                  <p className="font-semibold text-slate-300">No announcements match this filter.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAnnouncementClubFilter('ALL');
+                      setAnnouncementSearch('');
+                    }}
+                    className="text-indigo-400 hover:underline pt-1 inline-block font-medium"
+                  >
+                    Reset filters to show all announcements
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredAnnouncements.map((ann) => (
+                    <AnnouncementCard key={ann.id} announcement={ann} />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -823,7 +903,7 @@ export const NormalDashboardView: React.FC<NormalDashboardViewProps> = ({
               onOpenEvent={onOpenDetails}
               onOpenAnnouncementsTab={(clubId) => {
                 setAnnouncementClubFilter(clubId || 'ALL');
-                setActiveTab('announcements');
+                switchTab('announcements');
               }}
               userEmail={user?.email}
               bookmarkedEvents={bookmarkedEvents}

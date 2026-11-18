@@ -50,6 +50,13 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
+  const handleProtectedRouteClick = (route: string) => {
+    onNavigate(route);
+    if (!user) {
+      onOpenAuth();
+    }
+  };
+
   return (
     <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-md border-b border-slate-800/80 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 md:gap-8">
@@ -82,7 +89,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             Home
           </button>
           <button
-            onClick={() => onNavigate('/dashboard/events')}
+            onClick={() => handleProtectedRouteClick('/dashboard/events')}
             className={`transition-colors whitespace-nowrap shrink-0 hover:text-white ${
               currentRoute === '/dashboard/events' ? 'text-indigo-400 font-semibold' : 'text-slate-300'
             }`}
@@ -90,7 +97,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             Events
           </button>
           <button
-            onClick={() => onNavigate('/dashboard/clubs')}
+            onClick={() => handleProtectedRouteClick('/dashboard/clubs')}
             className={`transition-colors whitespace-nowrap shrink-0 hover:text-white ${
               currentRoute === '/dashboard/clubs' ? 'text-indigo-400 font-semibold' : 'text-slate-300'
             }`}
@@ -98,7 +105,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             Clubs
           </button>
           <button
-            onClick={() => onNavigate('/dashboard/announcements')}
+            onClick={() => handleProtectedRouteClick('/dashboard/announcements')}
             className={`transition-colors whitespace-nowrap shrink-0 hover:text-white ${
               currentRoute === '/dashboard/announcements' ? 'text-indigo-400 font-semibold' : 'text-slate-300'
             }`}
@@ -260,7 +267,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
             <button
               onClick={() => {
-                onNavigate('/dashboard/events');
+                handleProtectedRouteClick('/dashboard/events');
                 setMobileMenuOpen(false);
               }}
               className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-200 hover:bg-slate-900"
@@ -269,7 +276,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
             <button
               onClick={() => {
-                onNavigate('/dashboard/clubs');
+                handleProtectedRouteClick('/dashboard/clubs');
                 setMobileMenuOpen(false);
               }}
               className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-200 hover:bg-slate-900"
@@ -278,7 +285,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
             <button
               onClick={() => {
-                onNavigate('/dashboard/announcements');
+                handleProtectedRouteClick('/dashboard/announcements');
                 setMobileMenuOpen(false);
               }}
               className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-200 hover:bg-slate-900"

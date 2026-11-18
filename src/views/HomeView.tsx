@@ -230,7 +230,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <VibeAThonHero
               event={featuredEvent}
               onOpenDetails={onOpenDetails}
-              onOpenAnnouncement={() => onNavigate('/dashboard/announcements')}
+              onOpenAnnouncement={() => {
+                if (user) {
+                  onNavigate('/dashboard/announcements');
+                } else {
+                  document.getElementById('announcements-section')?.scrollIntoView({ behavior: 'smooth' });
+                }
+              }}
             />
           </section>
         )}
@@ -417,7 +423,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
 
             <button
-              onClick={() => onNavigate('/dashboard/announcements')}
+              onClick={() => {
+                onNavigate('/dashboard/announcements');
+                if (!user) onOpenAuth();
+              }}
               className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 shrink-0"
             >
               <span>View Full Notice Feed</span>

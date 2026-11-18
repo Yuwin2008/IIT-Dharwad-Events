@@ -26,12 +26,14 @@ import { EventItem } from '../types';
 
 interface AdminDashboardViewProps {
   initialTab?: string;
+  onTabChange?: (tab: string) => void;
   onPreviewEvent: (event: EventItem) => void;
   onNavigateStudentDashboard: () => void;
 }
 
 export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   initialTab = 'overview',
+  onTabChange,
   onPreviewEvent,
   onNavigateStudentDashboard,
 }) => {
@@ -43,6 +45,11 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  const switchTab = (tab: string) => {
+    setActiveTab(tab);
+    onTabChange?.(tab);
+  };
 
   // Security Guard: double-check permission
   if (!canAccessAdmin) {
@@ -92,7 +99,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           {/* Navigation Links */}
           <nav className="space-y-1 text-xs font-medium">
             <button
-              onClick={() => setActiveTab('overview')}
+              onClick={() => switchTab('overview')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'overview'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
@@ -107,7 +114,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('events')}
+              onClick={() => switchTab('events')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'events'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
@@ -122,7 +129,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('announcements')}
+              onClick={() => switchTab('announcements')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'announcements'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
@@ -137,7 +144,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('clubs')}
+              onClick={() => switchTab('clubs')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'clubs'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
@@ -154,7 +161,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             {/* SUPER ADMIN ONLY: Manage Club Admins */}
             {isSuperAdmin && (
               <button
-                onClick={() => setActiveTab('admins')}
+                onClick={() => switchTab('admins')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                   activeTab === 'admins'
                     ? 'bg-purple-700 text-white shadow-md shadow-purple-950 font-semibold'
@@ -176,7 +183,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             )}
 
             <button
-              onClick={() => setActiveTab('activity')}
+              onClick={() => switchTab('activity')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'activity'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
@@ -191,7 +198,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('account')}
+              onClick={() => switchTab('account')}
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-colors ${
                 activeTab === 'account'
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950 font-semibold'
@@ -230,7 +237,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         <main className="lg:col-span-9">
           {activeTab === 'overview' && (
             <AdminOverview
-              onNavigateTab={(tab) => setActiveTab(tab)}
+              onNavigateTab={(tab) => switchTab(tab)}
               onOpenSqlModal={() => setSqlModalOpen(true)}
             />
           )}

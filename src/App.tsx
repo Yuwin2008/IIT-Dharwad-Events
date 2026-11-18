@@ -30,9 +30,18 @@ function AppContent() {
   useDataStoreVersion();
   useEventPushScheduler(user?.email);
 
+  // Normalize convenience routes like /announcements -> /dashboard/announcements
+  const normalizeRoute = (rawRoute: string): string => {
+    const clean = rawRoute || '/';
+    if (clean === '/announcements') return '/dashboard/announcements';
+    if (clean === '/events') return '/dashboard/events';
+    if (clean === '/clubs') return '/dashboard/clubs';
+    return clean;
+  };
+
   // Router State
   const [currentRoute, setCurrentRoute] = useState<string>(() => {
-    return window.location.pathname || '/';
+    return normalizeRoute(window.location.pathname || '/');
   });
 
   // Modal States
@@ -45,7 +54,7 @@ function AppContent() {
   // Sync browser URL history and shared ?event= query link
   useEffect(() => {
     const handlePopState = () => {
-      setCurrentRoute(window.location.pathname || '/');
+      setCurrentRoute(normalizeRoute(window.location.pathname || '/'));
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -78,9 +87,20 @@ function AppContent() {
   }, []);
 
   const navigateTo = (route: string) => {
-    setCurrentRoute(route);
-    window.history.pushState({}, '', route);
+    const normalized = normalizeRoute(route);
+    setCurrentRoute(normalized);
+    if (window.location.pathname !== normalized) {
+      window.history.pushState({}, '', normalized);
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const syncRouteFromTab = (route: string) => {
+    const normalized = normalizeRoute(route);
+    setCurrentRoute(normalized);
+    if (window.location.pathname !== normalized) {
+      window.history.replaceState({}, '', normalized);
+    }
   };
 
   const handleOpenAuth = (mode: 'login' | 'signup' = 'login') => {
@@ -144,6 +164,18 @@ function AppContent() {
       return (
         <AdminDashboardView
           initialTab={adminTab}
+          onTabChange={(tab) => {
+            const tabRouteMap: Record<string, string> = {
+              overview: '/admin',
+              events: '/admin/events',
+              announcements: '/admin/announcements',
+              clubs: '/admin/clubs',
+              admins: '/admin/administrators',
+              activity: '/admin/activity',
+              account: '/admin/account',
+            };
+            syncRouteFromTab(tabRouteMap[tab] || '/admin');
+          }}
           onPreviewEvent={(evt) => setSelectedEvent(evt)}
           onNavigateStudentDashboard={() => navigateTo('/dashboard')}
         />
@@ -153,25 +185,39 @@ function AppContent() {
     // 3. STUDENT DASHBOARD ROUTES (/dashboard, /dashboard/events, /dashboard/clubs, /dashboard/announcements, /dashboard/account)
     if (currentRoute.startsWith('/dashboard')) {
       if (!user) {
+        const sectionLabel =
+          currentRoute === '/dashboard/announcements'
+            ? 'Campus Announcements & Circulars'
+            : currentRoute === '/dashboard/events'
+            ? 'Campus Events Directory'
+            : currentRoute === '/dashboard/clubs'
+            ? 'Student Clubs Directory'
+            : 'IIT Dharwad Student Portal';
+
         return (
-          <div className="max-w-md mx-auto my-12 sm:my-16 mx-4 sm:mx-auto p-6 sm:p-8 bg-slate-900 border border-slate-800 rounded-2xl text-center space-y-4">
-            <h2 className="text-xl font-bold text-white">IIT Dharwad Authentication Required</h2>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Sign in or register with any official <code className="text-indigo-300">@iitdh.ac.in</code> email address to view full announcements, events, and notifications on this device.
-            </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1">
-              <button
-                onClick={() => handleOpenAuth('login')}
-                className="w-full sm:w-auto px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition-colors"
-              >
-                Sign In (@iitdh.ac.in)
-              </button>
-              <button
-                onClick={() => handleOpenAuth('signup')}
-                className="w-full sm:w-auto px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition-colors"
-              >
-                New Student? Register
-              </button>
+          <div className="max-w-md mx-auto my-12 sm:my-16 px-4">
+            <div className="p-6 sm:p-8 bg-slate-900 border border-slate-800 rounded-2xl text-center space-y-4">
+              <span className="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider block">
+                {sectionLabel}
+              </span>
+              <h2 className="text-xl font-bold text-white">IIT Dharwad Authentication Required</h2>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Sign in or register with any official <code className="text-indigo-300">@iitdh.ac.in</code> email address to open {sectionLabel.toLowerCase()} on this device.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1">
+                <button
+                  onClick={() => handleOpenAuth('login')}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition-colors"
+                >
+                  Sign In (@iitdh.ac.in)
+                </button>
+                <button
+                  onClick={() => handleOpenAuth('signup')}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition-colors"
+                >
+                  New Student? Register
+                </button>
+              </div>
             </div>
           </div>
         );
@@ -187,6 +233,18 @@ function AppContent() {
       return (
         <NormalDashboardView
           initialTab={dashboardTab}
+          onTabChange={(tab) => {
+            const tabRouteMap: Record<string, string> = {
+              overview: '/dashboard',
+              upcoming: '/dashboard/events',
+              events: '/dashboard/events',
+              clubs: '/dashboard/clubs',
+              announcements: '/dashboard/announcements',
+              notifications: '/dashboard/notifications',
+              account: '/dashboard/account',
+            };
+            syncRouteFromTab(tabRouteMap[tab] || '/dashboard');
+          }}
           onOpenDetails={(evt) => setSelectedEvent(evt)}
           onSelectClub={(club) => setSelectedClub(club)}
           onNavigateAdmin={() => navigateTo('/admin')}

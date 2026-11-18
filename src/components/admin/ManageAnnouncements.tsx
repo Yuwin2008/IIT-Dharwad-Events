@@ -42,6 +42,9 @@ export const ManageAnnouncements: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const allowedClubIdsKey = allowedClubIds.join(',');
 
   useEffect(() => {
     if (!isEditing) {
@@ -52,7 +55,7 @@ export const ManageAnnouncements: React.FC = () => {
         setClubId(allowedClubs[0].id);
       }
     }
-  }, [isEditing, isSuperAdmin, type, clubId, allowedClubs]);
+  }, [isEditing, isSuperAdmin, type, clubId, allowedClubIdsKey]);
 
   const resetForm = () => {
     setIsEditing(false);
@@ -119,14 +122,22 @@ export const ManageAnnouncements: React.FC = () => {
       return;
     }
 
+    const normalizeOptionalUrl = (raw: string): string | undefined => {
+      const trimmed = raw.trim();
+      if (!trimmed) return undefined;
+      if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('/')) return trimmed;
+      return `https://${trimmed}`;
+    };
+
     try {
+      setIsSubmitting(true);
       const payload = {
         title: title.trim(),
         content: content.trim(),
         type,
         club_id: type === 'Campus-wide Announcement' ? null : clubId,
-        external_url: externalUrl.trim() || undefined,
-        attachment_url: attachmentUrl.trim() || undefined,
+        external_url: normalizeOptionalUrl(externalUrl),
+        attachment_url: normalizeOptionalUrl(attachmentUrl),
         status,
         published_at: new Date().toISOString(),
         created_by: user?.id,
@@ -143,6 +154,8 @@ export const ManageAnnouncements: React.FC = () => {
       resetForm();
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to save announcement.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -313,7 +326,7 @@ export const ManageAnnouncements: React.FC = () => {
                 External Link (Optional)
               </label>
               <input
-                type="url"
+                type="text"
                 value={externalUrl}
                 onChange={(e) => setExternalUrl(e.target.value)}
                 placeholder="https://iitdh.ac.in/..."
@@ -347,10 +360,11 @@ export const ManageAnnouncements: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-md shadow-indigo-950"
+              disabled={isSubmitting}
+              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-md shadow-indigo-950"
             >
               <Check className="w-4 h-4" />
-              <span>{editingId ? 'Save Changes' : 'Publish Circular'}</span>
+              <span>{isSubmitting ? 'Saving...' : editingId ? 'Save Changes' : 'Publish Circular'}</span>
             </button>
           </div>
         </form>

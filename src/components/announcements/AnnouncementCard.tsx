@@ -11,15 +11,27 @@ export const AnnouncementCard: React.FC<AnnouncementCardProps> = ({ announcement
 
   const formatDate = (dateStr: string) => {
     try {
-      return new Date(dateStr).toLocaleDateString('en-US', {
+      const parsed = new Date(dateStr);
+      if (isNaN(parsed.getTime())) return dateStr || 'Recent';
+      return parsed.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
       });
     } catch {
-      return dateStr;
+      return dateStr || 'Recent';
     }
   };
+
+  const toSafeHref = (rawUrl?: string): string | undefined => {
+    const trimmed = rawUrl?.trim();
+    if (!trimmed) return undefined;
+    if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('/')) return trimmed;
+    return `https://${trimmed}`;
+  };
+
+  const safeExternalUrl = toSafeHref(announcement.external_url);
+  const safeAttachmentUrl = toSafeHref(announcement.attachment_url);
 
   return (
     <article className="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-xl p-5 shadow-lg transition-colors space-y-3">
@@ -56,11 +68,11 @@ export const AnnouncementCard: React.FC<AnnouncementCardProps> = ({ announcement
       </p>
 
       {/* External Link or Attachment */}
-      {(announcement.external_url || announcement.attachment_url) && (
+      {(safeExternalUrl || safeAttachmentUrl) && (
         <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-3 text-xs">
-          {announcement.external_url && (
+          {safeExternalUrl && (
             <a
-              href={announcement.external_url}
+              href={safeExternalUrl}
               target="_blank"
               rel="noreferrer"
               className="text-indigo-400 hover:text-indigo-300 font-medium inline-flex items-center gap-1 transition-colors"
@@ -70,9 +82,9 @@ export const AnnouncementCard: React.FC<AnnouncementCardProps> = ({ announcement
             </a>
           )}
 
-          {announcement.attachment_url && (
+          {safeAttachmentUrl && (
             <a
-              href={announcement.attachment_url}
+              href={safeAttachmentUrl}
               target="_blank"
               rel="noreferrer"
               className="text-slate-400 hover:text-slate-200 font-medium inline-flex items-center gap-1 transition-colors"
